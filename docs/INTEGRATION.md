@@ -15,6 +15,8 @@ graph TD
     CLI --> Prompt
     CLI --> Build
     CLI --> Doc
+    Resource[Resource Management] --> State
+    Resource --> Build
 ```
 
 ### Communication Patterns
@@ -27,6 +29,9 @@ graph TD
        TaskUpdated(TaskId),
        TaskCompleted(TaskId),
        TaskFailed(TaskId, Error),
+       DependencyResolved(TaskId),
+       ResourceAllocated(TaskId, ResourceId),
+       ResourceReleased(TaskId, ResourceId),
    }
    ```
 
@@ -37,6 +42,8 @@ graph TD
        StepCompleted(BuildId, StepId),
        BuildCompleted(BuildId),
        BuildFailed(BuildId, Error),
+       ResourceRequested(BuildId, ResourceRequest),
+       ResourceGranted(BuildId, ResourceGrant),
    }
    ```
 
@@ -57,14 +64,40 @@ pub struct SharedState {
     pub state_manager: Arc<RwLock<StateManager>>,
     pub doc_engine: Arc<RwLock<DocumentationEngine>>,
     pub build_engine: Arc<RwLock<BuildEngine>>,
+    pub resource_manager: Arc<RwLock<ResourceManager>>,
 }
 ```
 
-#### Resource Limits
+#### Resource Management
+```rust
+pub struct ResourceManager {
+    pub allocations: Arc<RwLock<HashMap<ResourceId, ResourceAllocation>>>,
+    pub limits: ResourceLimits,
+    pub metrics: Arc<RwLock<ResourceMetrics>>,
+}
+
+pub struct ResourceLimits {
+    pub max_concurrent_builds: usize,
+    pub max_memory_per_build: usize,
+    pub max_disk_space_per_build: usize,
+    pub task_timeout: Duration,
+    pub max_cpu_per_build: f64,
+}
+
+pub struct ResourceMetrics {
+    pub cpu_usage: HashMap<TaskId, f64>,
+    pub memory_usage: HashMap<TaskId, usize>,
+    pub disk_usage: HashMap<TaskId, usize>,
+    pub execution_time: HashMap<TaskId, Duration>,
+}
+```
+
+### Resource Limits
 - Max concurrent builds: 4
 - Max memory per build: 1GB
 - Max disk space per build: 10GB
 - Task timeout: 30 minutes
+- Max CPU per build: 2.0
 
 ## Error Handling
 
@@ -81,6 +114,8 @@ pub struct SharedState {
        Doc(#[from] DocError),
        #[error("Prompt error: {0}")]
        Prompt(#[from] PromptError),
+       #[error("Resource error: {0}")]
+       Resource(#[from] ResourceError),
    }
    ```
 
@@ -91,6 +126,7 @@ pub struct SharedState {
        pub operation: OperationType,
        pub timestamp: DateTime<Utc>,
        pub cause: Option<Box<ErrorContext>>,
+       pub resource_state: Option<ResourceState>,
    }
    ```
 
@@ -99,26 +135,26 @@ pub struct SharedState {
 #### State Recovery
 1. **Snapshot-based Recovery**
    - Periodic state snapshots (every 5 minutes)
-   - Transaction log for incremental recovery
-   - Last known good state restoration
+   - Resource allocation snapshots
+   - Dependency state preservation
 
-2. **Consistency Checks**
-   - Task graph validation
-   - Dependency integrity verification
-   - Resource leak detection
+2. **Resource Recovery**
+   - Automatic resource cleanup
+   - Resource reallocation on failure
+   - Priority-based resource redistribution
 
-#### Build Recovery
-1. **Checkpoint Recovery**
-   - Step-level checkpoints
-   - Artifact preservation
-   - Partial build resumption
+#### Dependency Resolution
+1. **Deadlock Prevention**
+   - Early cycle detection
+   - Resource ordering
+   - Timeout-based resolution
 
-2. **Resource Cleanup**
-   - Temporary file cleanup
-   - Process termination
-   - Lock release
+2. **Task Scheduling**
+   - Resource-aware scheduling
+   - Priority inheritance
+   - Dynamic task reordering
 
-### Logging Requirements
+## Logging Requirements
 
 #### Log Levels
 ```rust
