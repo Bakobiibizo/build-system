@@ -7,10 +7,9 @@ use tempfile::TempDir;
 
 use build_system::state::types::{
     TaskId,
-    TaskMetadata,
-    TaskPriority,
     TaskState,
     TaskStatus,
+    TaskMetadata,
     StateSnapshot,
 };
 use build_system::state::StateManager;
@@ -20,29 +19,75 @@ use build_system::state::error::StateError;
 mod tests {
     use super::*;
 
-    fn create_test_task(id: &str) -> TaskState {
-        TaskState {
-            id: TaskId::new(id),
-            status: TaskStatus::Pending,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            metadata: TaskMetadata {
-                name: format!("Test Task {}", id),
-                description: Some("Test task description".to_string()),
-                owner: "test-owner".to_string(),
-                priority: TaskPriority::High,
-                tags: vec!["test".to_string()],
-                estimated_duration: Duration::from_micros(1),
-                dependencies: vec![],
-                additional_info: HashMap::new(),
-            },
-        }
+    #[tokio::test]
+    async fn test_task_state() {
+        let id = "test-task-1";
+        let task_id = TaskId::new(id);
+        let mut task = TaskState::new(task_id.clone());
+
+        // Update metadata
+        task.metadata = TaskMetadata {
+            name: format!("Test Task {}", id),
+            description: Some("Test task description".to_string()),
+            owner: "test-owner".to_string(),
+            dependencies: vec![],
+            estimated_duration: Duration::from_secs(60),
+            priority: 1,
+            tags: vec!["test".to_string()],
+            additional_info: HashMap::new(),
+        };
+
+        assert_eq!(task.id, task_id);
+        assert_eq!(task.status, TaskStatus::Pending);
+        assert_eq!(task.metadata.name, format!("Test Task {}", id));
+        assert_eq!(task.metadata.priority, 1);
+        assert_eq!(task.metadata.tags.len(), 1);
+        assert_eq!(task.metadata.tags[0], "test");
+    }
+
+    #[tokio::test]
+    async fn test_task_metadata() {
+        let id = "test-task-1";
+        let task_id = TaskId::new(id);
+        let mut task = TaskState::new(task_id);
+
+        // Update metadata
+        task.metadata = TaskMetadata {
+            name: "Test Task test-1".to_string(),
+            description: Some("Test task description".to_string()),
+            owner: "test-owner".to_string(),
+            dependencies: vec![],
+            estimated_duration: Duration::from_secs(60),
+            priority: 1,
+            tags: vec!["test".to_string()],
+            additional_info: HashMap::new(),
+        };
+
+        assert_eq!(task.metadata.name, "Test Task test-1");
+        assert_eq!(task.metadata.priority, 1);
+        assert_eq!(task.metadata.tags.len(), 1);
+        assert_eq!(task.metadata.tags[0], "test");
     }
 
     #[tokio::test]
     async fn test_state_manager_create_task() -> Result<(), StateError> {
         let state_manager = StateManager::new();
-        let task = create_test_task("test-1");
+        let task = TaskState {
+            id: TaskId::new("test-1"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-1".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         state_manager.create_task(task.clone()).await?;
         let retrieved_task = state_manager.get_task(&task.id).await?;
@@ -57,7 +102,22 @@ mod tests {
     #[tokio::test]
     async fn test_state_manager_update_task() -> Result<(), StateError> {
         let state_manager = StateManager::new();
-        let mut task = create_test_task("test-2");
+        let mut task = TaskState {
+            id: TaskId::new("test-2"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-2".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         // Create initial task
         state_manager.create_task(task.clone()).await?;
@@ -75,8 +135,38 @@ mod tests {
     #[tokio::test]
     async fn test_state_manager_dependencies() -> Result<(), StateError> {
         let state_manager = StateManager::new();
-        let task1 = create_test_task("test-3");
-        let mut task2 = create_test_task("test-4");
+        let task1 = TaskState {
+            id: TaskId::new("test-3"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-3".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
+        let mut task2 = TaskState {
+            id: TaskId::new("test-4"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-4".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         // Add task1 as dependency for task2
         task2.metadata.dependencies = vec![task1.id.clone()];
@@ -94,7 +184,22 @@ mod tests {
     #[tokio::test]
     async fn test_state_manager_delete_task() -> Result<(), StateError> {
         let state_manager = StateManager::new();
-        let task = create_test_task("test-5");
+        let task = TaskState {
+            id: TaskId::new("test-5"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-5".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         // Create and then delete task
         state_manager.create_task(task.clone()).await?;
@@ -110,7 +215,22 @@ mod tests {
     #[tokio::test]
     async fn test_update_task_status() -> Result<(), StateError> {
         let manager = StateManager::new();
-        let task = create_test_task("test-2");
+        let task = TaskState {
+            id: TaskId::new("test-2"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-2".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         manager.create_task(task.clone()).await?;
         manager.update_task_status(&task.id, TaskStatus::Running).await?;
@@ -124,7 +244,22 @@ mod tests {
     #[tokio::test]
     async fn test_delete_task() -> Result<(), StateError> {
         let manager = StateManager::new();
-        let task = create_test_task("test-3");
+        let task = TaskState {
+            id: TaskId::new("test-3"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-3".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         manager.create_task(task.clone()).await?;
         manager.delete_task(&task.id).await?;
@@ -138,8 +273,38 @@ mod tests {
     #[tokio::test]
     async fn test_list_tasks() -> Result<(), StateError> {
         let manager = StateManager::new();
-        let task1 = create_test_task("test-4");
-        let task2 = create_test_task("test-5");
+        let task1 = TaskState {
+            id: TaskId::new("test-4"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-4".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
+        let task2 = TaskState {
+            id: TaskId::new("test-5"),
+            status: TaskStatus::Pending,
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+            metadata: TaskMetadata {
+                name: "Test Task test-5".to_string(),
+                description: Some("Test task description".to_string()),
+                owner: "test-owner".to_string(),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                estimated_duration: Duration::from_micros(1),
+                dependencies: vec![],
+                additional_info: HashMap::new(),
+            },
+        };
 
         manager.create_task(task1.clone()).await?;
         manager.create_task(task2.clone()).await?;
@@ -162,7 +327,7 @@ mod tests {
                 name: "Test Task test-1".to_string(),
                 description: Some("Test task description".to_string()),
                 owner: "test-owner".to_string(),
-                priority: TaskPriority::High,
+                priority: 1,
                 tags: vec!["test".to_string()],
                 estimated_duration: Duration::from_micros(1),
                 dependencies: vec![],

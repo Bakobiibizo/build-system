@@ -1,22 +1,15 @@
-use std::collections::HashMap;
 use std::path::PathBuf;
 use std::time::Duration;
+use std::collections::HashMap;
 
-use chrono::Utc;
-use uuid::Uuid;
-
-use build_system::state::types::{
-    TaskId, 
-    TaskState, 
-    TaskMetadata, 
-    TaskStatus,
-    TaskPriority,
-};
+use build_system::build::BuildManager;
 use build_system::build::error::BuildError;
+use build_system::state::StateManager;
+use build_system::state::types::{TaskId, TaskState, TaskStatus, TaskMetadata};
+use chrono::Utc;
 
 pub trait StateManagerProcessor {
     async fn update_task_state(&self, task_id: TaskId, state: TaskState) -> Result<(), BuildError>;
-    async fn get_task_state(&self, task_id: TaskId) -> Result<TaskState, BuildError>;
 }
 
 pub struct MockStateManagerProcessor;
@@ -25,33 +18,6 @@ impl StateManagerProcessor for MockStateManagerProcessor {
     async fn update_task_state(&self, _task_id: TaskId, _state: TaskState) -> Result<(), BuildError> {
         Ok(())
     }
-
-    async fn get_task_state(&self, _task_id: TaskId) -> Result<TaskState, BuildError> {
-        Ok(create_test_task_state())
-    }
-}
-
-fn create_test_task_metadata() -> TaskMetadata {
-    TaskMetadata {
-        name: "Test Task".to_string(),
-        description: Some("A test task for integration testing".to_string()),
-        owner: "test-user".to_string(),
-        priority: TaskPriority::High,
-        tags: vec!["test".to_string(), "integration".to_string()],
-        estimated_duration: Duration::from_micros(1),
-        dependencies: vec![],
-        additional_info: HashMap::new(),
-    }
-}
-
-fn create_test_task_state() -> TaskState {
-    TaskState {
-        id: TaskId::new("test-1"),
-        status: TaskStatus::Pending,
-        created_at: Utc::now(),
-        updated_at: Utc::now(),
-        metadata: create_test_task_metadata(),
-    }
 }
 
 #[cfg(test)]
@@ -59,37 +25,68 @@ mod tests {
     use super::*;
 
     #[tokio::test]
-    async fn test_task_state_update() {
-        let processor = MockStateManagerProcessor;
-        let task_id = TaskId::new("test-1");
-        let state = create_test_task_state();
-        
-        let result = processor.update_task_state(task_id, state).await;
-        assert!(result.is_ok());
+    async fn test_build_flow() -> Result<(), BuildError> {
+        let state_manager = StateManager::new();
+        let build_manager = BuildManager::new(state_manager.clone(), PathBuf::from("/tmp"));
+
+        // Create a test task
+        let task_id = TaskId::new("test-task");
+        let task = TaskState {
+            id: task_id.clone(),
+            status: TaskStatus::Pending,
+            metadata: TaskMetadata {
+                name: "echo test".to_string(),
+                description: Some("A test task".to_string()),
+                owner: "test".to_string(),
+                dependencies: vec![],
+                estimated_duration: Duration::from_secs(60),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                additional_info: HashMap::new(),
+            },
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        state_manager.create_task(task).await.map_err(BuildError::StateError)?;
+        build_manager.execute_task(&task_id).await?;
+
+        let updated_task = state_manager.get_task(&task_id).await.map_err(BuildError::StateError)?;
+        assert_eq!(updated_task.status, TaskStatus::Completed);
+
+        Ok(())
     }
 
     #[tokio::test]
-    async fn test_task_state_retrieval() {
-        let processor = MockStateManagerProcessor;
-        let task_id = TaskId::new("test-1");
-        
-        let result = processor.get_task_state(task_id).await;
-        assert!(result.is_ok());
-    }
+    async fn test_task_workflow() -> Result<(), BuildError> {
+        let state_manager = StateManager::new();
+        let build_manager = BuildManager::new(state_manager.clone(), PathBuf::from("/tmp"));
 
-    #[tokio::test]
-    async fn test_task_workflow() -> Result<(), Box<dyn std::error::Error>> {
-        let processor = MockStateManagerProcessor;
-        let task_id = TaskId::new("test-1");
-        let mut state = create_test_task_state();
-        
-        // Update task state
-        processor.update_task_state(task_id.clone(), state.clone()).await?;
-        
-        // Retrieve and verify
-        state = processor.get_task_state(task_id).await?;
-        assert_eq!(state.status, TaskStatus::Pending);
-        
+        // Create a test task
+        let task_id = TaskId::new("test-task");
+        let task = TaskState {
+            id: task_id.clone(),
+            status: TaskStatus::Pending,
+            metadata: TaskMetadata {
+                name: "echo test".to_string(),
+                description: Some("A test task".to_string()),
+                owner: "test".to_string(),
+                dependencies: vec![],
+                estimated_duration: Duration::from_secs(60),
+                priority: 1,
+                tags: vec!["test".to_string()],
+                additional_info: HashMap::new(),
+            },
+            created_at: Utc::now(),
+            updated_at: Utc::now(),
+        };
+
+        state_manager.create_task(task.clone()).await.map_err(BuildError::StateError)?;
+        build_manager.execute_task(&task_id).await?;
+
+        let updated_task = state_manager.get_task(&task_id).await.map_err(BuildError::StateError)?;
+        assert_eq!(updated_task.status, TaskStatus::Completed);
+
         Ok(())
     }
 }

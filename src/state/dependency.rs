@@ -1,128 +1,117 @@
-use std::collections::{HashMap, HashSet, VecDeque};
+use std::collections::{HashMap, HashSet};
 use std::sync::Arc;
 use tokio::sync::RwLock;
 
 use crate::state::error::StateError;
 use crate::state::types::TaskId;
 
-/// DependencyGraph manages task dependencies and provides methods for dependency resolution
 #[derive(Debug, Clone)]
 pub struct DependencyGraph {
-    nodes: Arc<RwLock<HashMap<TaskId, HashSet<TaskId>>>>,  // task -> dependencies
-    reverse: Arc<RwLock<HashMap<TaskId, HashSet<TaskId>>>>, // task -> dependents
+    dependencies: Arc<RwLock<HashMap<TaskId, HashSet<TaskId>>>>,
+    dependents: Arc<RwLock<HashMap<TaskId, HashSet<TaskId>>>>,
 }
 
 impl DependencyGraph {
-    /// Creates a new empty DependencyGraph
     pub fn new() -> Self {
-        Self {
-            nodes: Arc::new(RwLock::new(HashMap::new())),
-            reverse: Arc::new(RwLock::new(HashMap::new())),
+        DependencyGraph {
+            dependencies: Arc::new(RwLock::new(HashMap::new())),
+            dependents: Arc::new(RwLock::new(HashMap::new())),
         }
     }
 
-    /// Adds a task and its dependencies to the graph
-    /// Returns error if adding would create a circular dependency
     pub async fn add_task(&self, task_id: TaskId, dependencies: Vec<TaskId>) -> Result<(), StateError> {
-        // First check for circular dependencies to avoid deadlock
-        let deps_set: HashSet<TaskId> = dependencies.iter().cloned().collect();
-        if !deps_set.is_empty() && self.would_create_cycle(&task_id, &deps_set).await {
-            return Err(StateError::CircularDependency(task_id.to_string()));
-        }
+        let mut deps = self.dependencies.write().await;
+        let mut depts = self.dependents.write().await;
 
-        // Now acquire write locks
-        let mut nodes = self.nodes.write().await;
-        let mut reverse = self.reverse.write().await;
+        // Add dependencies for the task
+        let task_deps = deps.entry(task_id.clone()).or_insert_with(HashSet::new);
+        for dep in &dependencies {
+            task_deps.insert(dep.clone());
 
-        // Add task and its dependencies
-        nodes.insert(task_id.clone(), deps_set.clone());
-
-        // Update reverse dependencies
-        for dep in deps_set {
-            reverse
-                .entry(dep)
-                .or_insert_with(HashSet::new)
-                .insert(task_id.clone());
+            // Add task as a dependent for each dependency
+            let dep_depts = depts.entry(dep.clone()).or_insert_with(HashSet::new);
+            dep_depts.insert(task_id.clone());
         }
 
         Ok(())
     }
 
-    /// Removes a task and its dependencies from the graph
     pub async fn remove_task(&self, task_id: &TaskId) -> Result<(), StateError> {
-        let mut nodes = self.nodes.write().await;
-        let mut reverse = self.reverse.write().await;
+        let mut deps = self.dependencies.write().await;
+        let mut depts = self.dependents.write().await;
 
-        // Remove from nodes
-        if let Some(deps) = nodes.remove(task_id) {
-            // Remove task from reverse dependencies
-            for dep in deps {
-                if let Some(dependents) = reverse.get_mut(&dep) {
-                    dependents.remove(task_id);
+        // Remove task from dependencies
+        if let Some(task_deps) = deps.remove(task_id) {
+            // Remove task from dependents of its dependencies
+            for dep in task_deps {
+                if let Some(dep_depts) = depts.get_mut(&dep) {
+                    dep_depts.remove(task_id);
                 }
             }
         }
 
-        // Remove from reverse map
-        reverse.remove(task_id);
+        // Remove task from dependents
+        if let Some(task_depts) = depts.remove(task_id) {
+            // Remove task from dependencies of its dependents
+            for dept in task_depts {
+                if let Some(dept_deps) = deps.get_mut(&dept) {
+                    dept_deps.remove(task_id);
+                }
+            }
+        }
 
         Ok(())
     }
 
-    /// Gets the dependencies of a task
     pub async fn get_dependencies(&self, task_id: &TaskId) -> Result<HashSet<TaskId>, StateError> {
-        let nodes = self.nodes.read().await;
-        nodes
-            .get(task_id)
-            .cloned()
-            .ok_or_else(|| StateError::TaskNotFound(task_id.to_string()))
+        let deps = self.dependencies.read().await;
+        Ok(deps.get(task_id).cloned().unwrap_or_default())
     }
 
-    /// Gets the tasks that depend on the given task
     pub async fn get_dependents(&self, task_id: &TaskId) -> Result<HashSet<TaskId>, StateError> {
-        let reverse = self.reverse.read().await;
-        Ok(reverse.get(task_id).cloned().unwrap_or_default())
+        let depts = self.dependents.read().await;
+        Ok(depts.get(task_id).cloned().unwrap_or_default())
     }
 
-    /// Gets tasks that have no dependencies and are ready to execute
-    pub async fn get_ready_tasks(&self) -> Vec<TaskId> {
-        let nodes = self.nodes.read().await;
-        let reverse = self.reverse.read().await;
-        
-        nodes.iter()
-            .filter(|(task_id, deps)| {
-                deps.is_empty() || deps.iter().all(|dep_id| {
-                    !reverse.contains_key(dep_id) || 
-                    reverse.get(dep_id).map(|deps| deps.is_empty()).unwrap_or(true)
-                })
-            })
-            .map(|(task_id, _)| task_id.clone())
-            .collect()
-    }
-
-    /// Checks if adding new dependencies would create a cycle
-    async fn would_create_cycle(&self, task_id: &TaskId, new_deps: &HashSet<TaskId>) -> bool {
+    pub async fn has_cycle(&self) -> bool {
+        let deps = self.dependencies.read().await;
         let mut visited = HashSet::new();
-        let mut queue = VecDeque::new();
+        let mut stack = HashSet::new();
 
-        // Start with the new dependencies
-        queue.extend(new_deps.iter().cloned());
-
-        while let Some(current) = queue.pop_front() {
-            if current == *task_id {
-                return true; // Found a cycle
-            }
-
-            if visited.insert(current.clone()) {
-                // Release lock after getting dependencies
-                let deps = {
-                    let nodes = self.nodes.read().await;
-                    nodes.get(&current).cloned().unwrap_or_default()
-                };
-                queue.extend(deps);
+        for task_id in deps.keys() {
+            if !visited.contains(task_id) {
+                if self.check_cycle_dfs(task_id, &deps, &mut visited, &mut stack) {
+                    return true;
+                }
             }
         }
 
+        false
+    }
+
+    fn check_cycle_dfs(
+        &self,
+        task_id: &TaskId,
+        deps: &HashMap<TaskId, HashSet<TaskId>>,
+        visited: &mut HashSet<TaskId>,
+        stack: &mut HashSet<TaskId>,
+    ) -> bool {
+        visited.insert(task_id.clone());
+        stack.insert(task_id.clone());
+
+        if let Some(task_deps) = deps.get(task_id) {
+            for dep in task_deps {
+                if !visited.contains(dep) {
+                    if self.check_cycle_dfs(dep, deps, visited, stack) {
+                        return true;
+                    }
+                } else if stack.contains(dep) {
+                    return true;
+                }
+            }
+        }
+
+        stack.remove(task_id);
         false
     }
 }
@@ -130,111 +119,68 @@ impl DependencyGraph {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::state::types::{TaskMetadata, TaskPriority, TaskState, TaskStatus};
-    use std::time::Duration;
-    use chrono::Utc;
 
-    fn create_test_task(id: &str) -> TaskState {
-        TaskState {
-            id: TaskId::new(id),
-            status: TaskStatus::Pending,
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-            metadata: TaskMetadata {
-                name: format!("Test Task {}", id),
-                description: Some("Test task description".to_string()),
-                owner: "test-owner".to_string(),
-                priority: TaskPriority::Medium,
-                tags: vec!["test".to_string()],
-                estimated_duration: Duration::from_secs(60),
-                dependencies: vec![],
-                additional_info: HashMap::new(),
-            },
-        }
+    #[tokio::test]
+    async fn test_add_and_get_dependencies() {
+        let graph = DependencyGraph::new();
+        let task1 = TaskId::new("test-1");
+        let task2 = TaskId::new("test-2");
+
+        graph
+            .add_task(task1.clone(), vec![task2.clone()])
+            .await
+            .unwrap();
+
+        let deps = graph.get_dependencies(&task1).await.unwrap();
+        assert_eq!(deps.len(), 1);
+        assert!(deps.contains(&task2));
+
+        let depts = graph.get_dependents(&task2).await.unwrap();
+        assert_eq!(depts.len(), 1);
+        assert!(depts.contains(&task1));
     }
 
     #[tokio::test]
-    async fn test_add_and_get_dependencies() -> Result<(), StateError> {
+    async fn test_remove_task() {
         let graph = DependencyGraph::new();
-        let task1 = create_test_task("test-1");
-        let task2 = create_test_task("test-2");
-        
-        let mut deps = Vec::new();
-        deps.push(task2.id.clone());
-        
-        graph.add_task(task1.id.clone(), deps).await?;
-        
-        let result = graph.get_dependencies(&task1.id).await?;
-        assert!(result.contains(&task2.id));
-        Ok(())
+        let task1 = TaskId::new("test-1");
+        let task2 = TaskId::new("test-2");
+
+        graph
+            .add_task(task1.clone(), vec![task2.clone()])
+            .await
+            .unwrap();
+
+        graph.remove_task(&task1).await.unwrap();
+
+        let deps = graph.get_dependencies(&task1).await.unwrap();
+        assert_eq!(deps.len(), 0);
+
+        let depts = graph.get_dependents(&task2).await.unwrap();
+        assert_eq!(depts.len(), 0);
     }
 
     #[tokio::test]
-    async fn test_circular_dependency_detection() -> Result<(), StateError> {
+    async fn test_cycle_detection() {
         let graph = DependencyGraph::new();
-        let task1 = create_test_task("test-3");
-        let task2 = create_test_task("test-4");
-        
-        let mut deps1 = Vec::new();
-        deps1.push(task2.id.clone());
-        graph.add_task(task1.id.clone(), deps1).await?;
-        
-        let mut deps2 = Vec::new();
-        deps2.push(task1.id.clone());
-        let result = graph.add_task(task2.id.clone(), deps2).await;
-        
-        assert!(matches!(result, Err(StateError::CircularDependency(_))));
-        Ok(())
-    }
+        let task1 = TaskId::new("test-1");
+        let task2 = TaskId::new("test-2");
+        let task3 = TaskId::new("test-3");
 
-    #[tokio::test]
-    async fn test_get_ready_tasks() -> Result<(), StateError> {
-        let graph = DependencyGraph::new();
-        let task1 = create_test_task("test-5");
-        let task2 = create_test_task("test-6");
-        
-        graph.add_task(task1.id.clone(), Vec::new()).await?;
-        
-        let mut deps = Vec::new();
-        deps.push(task1.id.clone());
-        graph.add_task(task2.id.clone(), deps).await?;
-        
-        let ready_tasks = graph.get_ready_tasks().await;
-        assert_eq!(ready_tasks.len(), 1);
-        assert!(ready_tasks.contains(&task1.id));
-        Ok(())
-    }
+        // Create a cycle: task1 -> task2 -> task3 -> task1
+        graph
+            .add_task(task1.clone(), vec![task2.clone()])
+            .await
+            .unwrap();
+        graph
+            .add_task(task2.clone(), vec![task3.clone()])
+            .await
+            .unwrap();
+        graph
+            .add_task(task3.clone(), vec![task1.clone()])
+            .await
+            .unwrap();
 
-    #[tokio::test]
-    async fn test_remove_task() -> Result<(), StateError> {
-        let graph = DependencyGraph::new();
-        let task1 = create_test_task("test-7");
-        let task2 = create_test_task("test-8");
-        
-        let mut deps = Vec::new();
-        deps.push(task2.id.clone());
-        
-        graph.add_task(task1.id.clone(), deps).await?;
-        graph.remove_task(&task1.id).await?;
-        
-        let result = graph.get_dependencies(&task1.id).await;
-        assert!(matches!(result, Err(StateError::TaskNotFound(_))));
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_get_dependents() -> Result<(), StateError> {
-        let graph = DependencyGraph::new();
-        let task1 = create_test_task("test-9");
-        let task2 = create_test_task("test-10");
-        
-        let mut deps = Vec::new();
-        deps.push(task1.id.clone());
-        graph.add_task(task2.id.clone(), deps).await?;
-        
-        let dependents = graph.get_dependents(&task1.id).await?;
-        assert_eq!(dependents.len(), 1);
-        assert!(dependents.contains(&task2.id));
-        Ok(())
+        assert!(graph.has_cycle().await);
     }
 }

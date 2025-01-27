@@ -1,53 +1,41 @@
 use anyhow::Result;
 use build_system::cli::{CliManager, BuildCommand};
+use build_system::build::BuildManager;
+use build_system::state::StateManager;
+use std::path::PathBuf;
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    /// Test basic CLI initialization
+    /// Test CLI initialization
     #[tokio::test]
-    async fn test_cli_init() -> Result<()> {
-        let cli = CliManager::new(None);
-        cli.run().await?;
+    async fn test_cli_manager() -> Result<()> {
+        let state_manager = StateManager::new();
+        let build_manager = BuildManager::new(state_manager, PathBuf::from("/tmp"));
+        let cli = CliManager::new(None, build_manager);
+        assert!(cli.execute_command("build", &["--target", "echo hello"]).await.is_ok());
         Ok(())
     }
 
-    /// Test command processing
+    /// Test CLI with configuration
     #[tokio::test]
-    async fn test_command_processing() -> Result<()> {
-        let cli = CliManager::new(None);
-        
-        let command = BuildCommand {
-            target: "test_target".to_string(),
-            config: None,
-        };
-
-        cli.process_command(command).await?;
+    async fn test_cli_with_config() -> Result<()> {
+        let state_manager = StateManager::new();
+        let build_manager = BuildManager::new(state_manager, PathBuf::from("/tmp"));
+        let config_path = Some("config.toml".to_string());
+        let cli = CliManager::new(config_path, build_manager);
+        assert!(cli.execute_command("build", &["--target", "echo hello"]).await.is_ok());
         Ok(())
     }
 
-    /// Test configuration handling
+    /// Test invalid command
     #[tokio::test]
-    async fn test_config_handling() -> Result<()> {
-        let config_path = Some("test_config.toml".to_string());
-        let cli = CliManager::new(config_path);
-
-        // TODO: Test configuration loading
-        // TODO: Test config validation
-        // TODO: Test config application
-        
-        Ok(())
-    }
-
-    /// Test command validation
-    #[tokio::test]
-    async fn test_command_validation() -> Result<()> {
-        // TODO: Implement command validation test
-        // 1. Test invalid commands
-        // 2. Test missing arguments
-        // 3. Test invalid options
-        // 4. Verify error messages
+    async fn test_invalid_command() -> Result<()> {
+        let state_manager = StateManager::new();
+        let build_manager = BuildManager::new(state_manager, PathBuf::from("/tmp"));
+        let cli = CliManager::new(None, build_manager);
+        assert!(cli.execute_command("invalid", &[]).await.is_err());
         Ok(())
     }
 }

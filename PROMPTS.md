@@ -48,26 +48,94 @@ Build system needs CLI integration with existing BuildEngine and StateManager co
 - Existing patterns in `src/build/mod.rs`
 - State management in `src/state/mod.rs`
 
-## Prompt Management
-
-EXECUTE TASK: Implement Prompt Management
+## CLI Interface Implementation Plan
 
 ### Context
-Build system needs prompt management for task interpretation and build step generation.
+- Current implementation: Basic command structure in place
+- Dependencies: BuildEngine, StateManager
+- Related components: Task execution pipeline
 
-### Steps
-1. Create PromptManager structure
-2. Implement task interpretation
-3. Add build step generation
-4. Write comprehensive tests
+### Objectives
+1. Create robust CLI interface using clap
+2. Implement core build system commands
+3. Ensure proper error handling and user feedback
+4. Add comprehensive command documentation
 
-### Requirements
-- Follow async patterns
-- Use strong typing
-- Maintain test coverage
-- Match existing error handling
+### Implementation Steps
 
-### Reference
-- See `docs/tasks/PROMPT_MANAGEMENT.md`
-- State patterns in `src/state/mod.rs`
-- Build patterns in `src/build/mod.rs`
+1. Create CLI Structure
+   - Define command hierarchy
+   - Implement subcommands: build, status, list, cancel
+   - Add command-line arguments and options
+   - Implement help documentation
+
+2. Implement Core Commands
+   - build: Execute build tasks
+     - Support single and multiple task execution
+     - Handle dependency resolution
+     - Show build progress
+   - status: Check task status
+     - Display task state
+     - Show dependency information
+     - List running tasks
+   - list: Show available tasks
+     - Display ready tasks
+     - Show task dependencies
+     - Filter by status
+   - cancel: Cancel running tasks
+     - Support single task cancellation
+     - Allow batch cancellation
+     - Handle dependent task cleanup
+
+3. Add Integration Tests
+   - Test command parsing
+   - Verify task execution flow
+   - Test error scenarios
+   - Validate output formatting
+
+4. Documentation Updates
+   - Update ARCHITECTURE.md: CLI command structure
+   - Update PROGRESS.md: CLI implementation status
+   - Add command usage examples
+   - Document error messages and troubleshooting
+
+### Implementation Details
+
+#### Command Structure
+```rust
+cli
+  ├── build
+  │   ├── --task <task_id>
+  │   ├── --all
+  │   └── --parallel <num>
+  ├── status
+  │   ├── --task <task_id>
+  │   └── --running
+  ├── list
+  │   ├── --ready
+  │   ├── --all
+  │   └── --format <format>
+  └── cancel
+      ├── --task <task_id>
+      └── --all
+```
+
+#### Error Handling
+- Implement custom error types for CLI
+- Provide clear error messages
+- Add verbose output option
+- Include troubleshooting hints
+
+#### Testing Requirements
+- Unit tests for command parsing
+- Integration tests for command execution
+- Error scenario coverage
+- Output format validation
+
+### Safety Considerations
+- Validate all user input
+- Prevent concurrent modifications
+- Handle interrupts gracefully
+- Maintain state consistency
+
+## Prompt Management

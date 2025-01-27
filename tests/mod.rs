@@ -60,4 +60,14 @@ mod tests {
 
         Ok(())
     }
+
+    #[test]
+    fn test_build() {
+        // Add test for build module here
+    }
+
+    #[test]
+    fn test_doc() {
+        // Add test for doc module here
+    }
 }

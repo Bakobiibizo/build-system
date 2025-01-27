@@ -1,26 +1,17 @@
 use thiserror::Error;
-use crate::state::StateError;
+use crate::state::error::StateError;
 
 #[derive(Debug, Error)]
 pub enum BuildError {
-    #[error("Insufficient resources available")]
-    InsufficientResources,
+    #[error("Invalid command: {0}")]
+    InvalidCommand(String),
 
-    #[error("Task cancelled: {0}")]
-    TaskCancelled(String),
-
-    #[error("Invalid task state: {0}")]
-    InvalidTaskState(String),
-
-    #[error("Dependencies not met for task: {0}")]
-    DependenciesNotMet(String),
-
-    #[error("Task execution failed: {0}")]
-    TaskExecutionError(String),
-
-    #[error("Task timed out: {0}")]
-    TimeoutError(String),
+    #[error("Command failed: {0}")]
+    CommandFailed(String),
 
     #[error("State error: {0}")]
     StateError(#[from] StateError),
+
+    #[error("IO error: {0}")]
+    IoError(#[from] std::io::Error),
 }
