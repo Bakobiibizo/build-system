@@ -25,7 +25,15 @@ async fn main() -> Result<()> {
     
     info!("Build system starting...");
     
-    // TODO: Initialize components and start build system
+    // Initialize PromptManager
+    let template_dir = "./src/prompt/templates".to_string();
+    let prompt_manager = prompt::PromptManager::new(template_dir).await;
+    
+    // Example project generation
+    let sample_request = "Create a task management web application with user authentication";
+    let project_config = prompt_manager.generate_project(sample_request).await?;
+    
+    info!("Generated project: {}", project_config.project_name);
     
     Ok(())
 }

@@ -2,79 +2,165 @@
 
 ## Overview
 
-A prompt-based build system leveraging LLMs to manage and execute build tasks with a focus on documentation-driven development. The system uses Rust for robust performance and type safety.
+An intelligent, AI-powered build system that leverages Large Language Models (LLMs) to generate, manage, and execute project workflows with a focus on adaptive, context-aware development. Built in Rust for maximum performance, type safety, and reliability.
+
+## Architectural Philosophy
+
+### Key Design Principles
+- Modularity and Extensibility
+- Context-Aware Intelligent Generation
+- Language and Framework Agnosticism
+- Robust Error Handling
+- Async-First Design
+- Machine Learning Integration
 
 ## Core Components
 
-### 1. State Management
-- Task tracking and state persistence
-- Build artifact management
-- Dependency graph maintenance
-- Cache management for build outputs
+### 1. Inference Module
+- LLM Integration Engine
+- OpenAI API Client
+- Prompt Processing
+- Response Interpretation
+- Async Task Execution
+- Configurable via Environment Variables
 
-### 2. Prompt Management
-- LLM interaction orchestration
-- Context management for build tasks
-- Template management for common build patterns
-- Prompt history and versioning
+#### Responsibilities
+- Generate project structures
+- Interpret complex build requirements
+- Provide intelligent recommendations
+- Handle diverse project descriptions
 
-### 3. Build Engine
-- Task execution pipeline
-- Parallel build coordination
-- Resource allocation and scheduling
-- Build step validation
+### 2. Prompt Management System
+- Prompt Template Management
+- Context Generation
+- Multi-Stage Prompt Processing
+- Project Description Parsing
+- Build Step Generation
 
-### 4. Documentation Engine
-- Automated documentation generation
-- Architecture and progress tracking
-- Dependency documentation
-- Build process documentation
+#### Key Features
+- Flexible Template System
+- Context-Aware Interpretation
+- Support for Complex Scenarios
+- Language-Agnostic Design
+
+### 3. State Management
+- Task Lifecycle Tracking
+- Dependency Resolution
+- Build Workflow Persistence
+- Metadata Management
+- Async State Transitions
+
+#### Advanced Capabilities
+- Project Generation Workflow Support
+- Flexible Dependency Tracking
+- Robust Error Recovery
+- Comprehensive Metadata Handling
+
+### 4. Build Engine
+- Multi-Language Build Support
+- Generalized Build Step Representation
+- Dynamic Build Strategy
+- Resource-Aware Execution
+- Parallel Task Processing
+
+#### Architectural Highlights
+- Language-Agnostic Build Steps
+- Extensible Build Strategies
+- Performance-Optimized Execution
+- Intelligent Resource Allocation
 
 ### 5. CLI Interface
-- Command-line interface for build operations
-- Interactive build management
-- Build status monitoring
-- Configuration management
+- Interactive Project Generation
+- AI-Guided Development
+- Flexible Configuration
+- Real-Time Build Monitoring
+- Comprehensive Reporting
 
-## Data Flow
+## Project Generation Workflow
 
-1. User Input → CLI Interface
-2. CLI Interface → Prompt Manager
-3. Prompt Manager → LLM Client
-4. LLM Client → Build Engine
-5. Build Engine → State Manager
-6. State Manager → Documentation Engine
-
-## Implementation Details
-
-### State Management
 ```rust
-pub struct BuildState {
-    tasks: HashMap<TaskId, TaskState>,
-    artifacts: HashMap<ArtifactId, ArtifactMetadata>,
-    dependencies: DependencyGraph,
+async fn generate_project(project_description: &str) -> Result<ProjectStructure> {
+    // 1. Generate Prompt
+    let prompt = prompt_manager.generate_project_prompt(project_description);
+    
+    // 2. Interpret Project Structure
+    let project_structure = inference_client.interpret_project_structure(&prompt);
+    
+    // 3. Generate Build Steps
+    let build_steps = build_engine.generate_language_specific_steps(project_structure);
+    
+    // 4. Create Project Tasks
+    let project_tasks = state_manager.create_project_tasks(build_steps);
+    
+    // 5. Execute Project Generation
+    build_engine.execute_project_generation(project_tasks)
 }
 ```
 
-### Build Pipeline
-1. Task Initialization
-2. Dependency Resolution
-3. Resource Allocation
-4. Task Execution
-5. Artifact Generation
-6. State Update
-7. Documentation Update
+## Data Flow and Interactions
+
+```
+User Description 
+  ↓
+CLI Interface 
+  ↓
+Prompt Management 
+  ↓
+Inference Module (LLM)
+  ↓
+Build Engine
+  ↓
+State Management
+  ↓
+Project Structure & Tasks
+```
+
+## Technical Challenges Addressed
+
+### 1. Project Complexity Management
+- Handling diverse project descriptions
+- Supporting multiple programming languages
+- Generating accurate, executable build steps
+
+### 2. Machine Learning Integration
+- Context-aware generation models
+- Robust parsing mechanisms
+- Intelligent fallback strategies
+
+### 3. Architectural Flexibility
+- Modular component design
+- Easy extension for new languages/frameworks
+- Comprehensive error handling
+
+## Future Evolution
+
+### Planned Enhancements
+- Advanced ML Models for Project Estimation
+- Automated Best Practice Recommendations
+- Continuous Integration Workflow Generation
+- Performance and Security Analysis
+
+## Technology Stack
+
+- **Language**: Rust
+- **LLM Integration**: OpenAI API
+- **Async Runtime**: Tokio
+- **Testing**: Mockall, Cargo Test
+- **Logging**: Tracing
+- **Error Handling**: Thiserror
+
+## Performance Considerations
+
+- Async-first design
+- Minimal runtime overhead
+- Efficient memory management
+- Parallel task execution
+- Intelligent caching mechanisms
 
 ## Security Considerations
 
-1. Input Validation
-2. Artifact Verification
-3. Dependency Chain Validation
-4. Resource Access Control
-
-## Performance Optimization
-
-1. Parallel Build Pipeline
-2. Caching Strategy
-3. Resource Management
-4. Dependency Resolution Optimization
+- Environment-based configuration
+- No hardcoded credentials
+- Secure API interactions
+- Comprehensive error logging
+- Minimal external dependencies
