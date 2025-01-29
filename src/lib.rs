@@ -3,6 +3,10 @@ pub mod cli;
 pub mod state;
 pub mod prompt;
 pub mod doc;
+pub mod inference;
+
+#[cfg(test)]
+mod inference_test;
 
 pub use state::StateManager;
 pub use state::error::StateError;
