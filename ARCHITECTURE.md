@@ -1,166 +1,125 @@
-# Build System Architecture
+# AI-Driven Project Generation System Architecture
 
 ## Overview
+This system is a comprehensive, modular framework for AI-powered project generation and management. It provides a flexible, extensible platform for creating software projects using advanced AI technologies.
 
-An intelligent, AI-powered build system that leverages Large Language Models (LLMs) to generate, manage, and execute project workflows with a focus on adaptive, context-aware development. Built in Rust for maximum performance, type safety, and reliability.
+## Core Architectural Components
 
-## Architectural Philosophy
+### 1. Overseer AI Model
+- Highest level of abstraction
+- Coordinates project generation workflow
+- Manages tool invocation and decision-making
+- Orchestrates interactions between system components
 
-### Key Design Principles
-- Modularity and Extensibility
-- Context-Aware Intelligent Generation
-- Language and Framework Agnosticism
-- Robust Error Handling
-- Async-First Design
-- Machine Learning Integration
-
-## Core Components
-
-### 1. Inference Module
-- LLM Integration Engine
-- OpenAI API Client
-- Prompt Processing
-- Response Interpretation
-- Async Task Execution
-- Configurable via Environment Variables
-
-#### Responsibilities
-- Generate project structures
-- Interpret complex build requirements
-- Provide intelligent recommendations
-- Handle diverse project descriptions
-
-### 2. Prompt Management System
-- Prompt Template Management
-- Context Generation
-- Multi-Stage Prompt Processing
-- Project Description Parsing
-- Build Step Generation
+### 2. Tool System
+#### Purpose
+- Implements a flexible, extensible tool protocol
+- Supports dynamic tool registration and execution
+- Provides a standardized interface for AI-driven tools
 
 #### Key Features
-- Flexible Template System
-- Context-Aware Interpretation
-- Support for Complex Scenarios
-- Language-Agnostic Design
+- Dynamic tool registration
+- Standardized tool call mechanism
+- Robust error handling
+- Support for complex, multi-parameter tools
+
+#### Future Enhancements
+- Enhanced parameter validation
+- More sophisticated tool discovery
+- Support for nested/dependent tool calls
 
 ### 3. State Management
-- Task Lifecycle Tracking
-- Dependency Resolution
-- Build Workflow Persistence
-- Metadata Management
-- Async State Transitions
+#### Purpose
+- Tracks project generation state
+- Manages task dependencies and execution
+- Provides robust state tracking and error handling
 
-#### Advanced Capabilities
-- Project Generation Workflow Support
-- Flexible Dependency Tracking
-- Robust Error Recovery
-- Comprehensive Metadata Handling
+#### Key Components
+- Task State Management
+- Dependency Graph Resolution
+- Atomic State Updates
+- Comprehensive Logging
 
-### 4. Build Engine
-- Multi-Language Build Support
-- Generalized Build Step Representation
-- Dynamic Build Strategy
-- Resource-Aware Execution
-- Parallel Task Processing
+#### Workflow
+```
+Pending 
+  ↓ (start)
+Running 
+  ↓ (success)
+Completed
+  ↓ (failure)
+Failed
+```
 
-#### Architectural Highlights
-- Language-Agnostic Build Steps
-- Extensible Build Strategies
-- Performance-Optimized Execution
-- Intelligent Resource Allocation
+### 4. Prompt Handling
+- Manages prompt generation and processing
+- Supports multiple prompt types and strategies
+- Provides template-based prompt generation
+- Handles context injection and safety mechanisms
 
-### 5. CLI Interface
-- Interactive Project Generation
-- AI-Guided Development
+### 5. Inference Interface
+#### Purpose
+- Abstracts AI model interactions
+- Supports streaming and non-streaming responses
+- Handles different AI provider integrations
+
+#### Key Features
+- Provider Abstraction
+- Streaming Support
+- Configurable Inference
+- Robust Error Handling
+
+#### Provider Strategy
+- Primary: OpenAI
+- Future Support:
+  - Anthropic Claude
+  - Google PaLM
+  - Local LLM models
+
+### 6. Project Generation Tool
+#### Purpose
+- Specific tool for implementing project structures
+- Generates project files based on AI specifications
+- Supports multi-phase project creation
+
+#### Key Responsibilities
+- Parse project design specifications
+- Generate project directory structures
+- Create initial project files
+- Provide metadata and tracking
+
+### 7. Documentation Tools
+- Generates and manages project documentation
+- Supports various documentation formats
+- Provides content validation
+- Enables search functionality
+
+## Design Principles
+- Modularity
+- Separation of Concerns
+- Extensibility
+- AI-Driven Workflow
 - Flexible Configuration
-- Real-Time Build Monitoring
-- Comprehensive Reporting
+- Minimal Runtime Overhead
 
-## Project Generation Workflow
-
-```rust
-async fn generate_project(project_description: &str) -> Result<ProjectStructure> {
-    // 1. Generate Prompt
-    let prompt = prompt_manager.generate_project_prompt(project_description);
-    
-    // 2. Interpret Project Structure
-    let project_structure = inference_client.interpret_project_structure(&prompt);
-    
-    // 3. Generate Build Steps
-    let build_steps = build_engine.generate_language_specific_steps(project_structure);
-    
-    // 4. Create Project Tasks
-    let project_tasks = state_manager.create_project_tasks(build_steps);
-    
-    // 5. Execute Project Generation
-    build_engine.execute_project_generation(project_tasks)
-}
-```
-
-## Data Flow and Interactions
-
-```
-User Description 
-  ↓
-CLI Interface 
-  ↓
-Prompt Management 
-  ↓
-Inference Module (LLM)
-  ↓
-Build Engine
-  ↓
-State Management
-  ↓
-Project Structure & Tasks
-```
-
-## Technical Challenges Addressed
-
-### 1. Project Complexity Management
-- Handling diverse project descriptions
-- Supporting multiple programming languages
-- Generating accurate, executable build steps
-
-### 2. Machine Learning Integration
-- Context-aware generation models
-- Robust parsing mechanisms
-- Intelligent fallback strategies
-
-### 3. Architectural Flexibility
-- Modular component design
-- Easy extension for new languages/frameworks
-- Comprehensive error handling
-
-## Future Evolution
-
-### Planned Enhancements
-- Advanced ML Models for Project Estimation
-- Automated Best Practice Recommendations
-- Continuous Integration Workflow Generation
-- Performance and Security Analysis
+## Workflow
+1. Ingest Project Requirements
+2. Generate Architectural Design
+3. Create Project Skeleton
+4. Implement Individual Components
+5. Validate and Refine Project
 
 ## Technology Stack
+- Language: Rust
+- AI Integration: OpenAI, Multi-Provider Support
+- State Management: Async Rust
+- Serialization: serde
+- Logging: tracing
 
-- **Language**: Rust
-- **LLM Integration**: OpenAI API
-- **Async Runtime**: Tokio
-- **Testing**: Mockall, Cargo Test
-- **Logging**: Tracing
-- **Error Handling**: Thiserror
-
-## Performance Considerations
-
-- Async-first design
-- Minimal runtime overhead
-- Efficient memory management
-- Parallel task execution
-- Intelligent caching mechanisms
-
-## Security Considerations
-
-- Environment-based configuration
-- No hardcoded credentials
-- Secure API interactions
-- Comprehensive error logging
-- Minimal external dependencies
+## Future Roadmap
+- Multi-Language Support
+- Enhanced AI Model Integration
+- Advanced State Tracking
+- Comprehensive Testing Framework
+- Distributed Workflow Management
+- Machine Learning-Assisted Predictions
