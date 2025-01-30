@@ -1,80 +1,122 @@
 use anyhow::Result;
+use clap::{Parser, Subcommand};
 use std::path::PathBuf;
-use clap::Parser;
-use crate::build::BuildManager;
-use crate::state::types::TaskId;
+use std::collections::HashMap;
 use chrono::Utc;
 
-#[derive(Debug, Parser)]
-pub struct BuildCommand {
-    #[clap(long)]
-    pub target: String,
-    #[clap(long)]
-    pub working_dir: Option<PathBuf>,
+use crate::doc::{DocumentationEngine, FileDocumentationEngine, types::{Documentation, DocType}};
+use crate::prompt::PromptManager;
+use crate::project_generator::ProjectGenerationWorkflow;
+
+#[derive(Parser)]
+#[command(name = "build-system")]
+#[command(about = "A powerful build and project generation system")]
+pub struct Cli {
+    #[command(subcommand)]
+    pub command: Option<Commands>,
 }
 
-#[derive(Debug, Clone)]
-pub struct Command {
-    pub action: String,
-    pub target: String,
+#[derive(Subcommand)]
+pub enum Commands {
+    /// Generate a new project
+    Generate {
+        /// Name of the project
+        #[arg(long)]
+        name: String,
+
+        /// Description of the project
+        #[arg(long)]
+        description: String,
+    },
+
+    /// Create documentation for a project
+    Doc {
+        /// Project name
+        #[arg(long)]
+        project: String,
+
+        /// Documentation type
+        #[arg(long, value_enum)]
+        doc_type: DocType,
+
+        /// Title of the documentation
+        #[arg(long)]
+        title: String,
+
+        /// Content of the documentation
+        #[arg(long)]
+        content: String,
+    },
 }
 
-#[derive(Debug, Clone)]
-pub struct CliManager {
-    config_path: Option<String>,
-    build_manager: BuildManager,
-}
+/// Run the CLI with async support
+pub async fn run_cli(cli: Cli) -> Result<()> {
+    match &cli.command {
+        Some(Commands::Generate { name, description }) => {
+            let prompt_manager = PromptManager::new(".reference/templates")?;
+            let description = description.clone();
 
-impl CliManager {
-    pub fn new(config_path: Option<String>, build_manager: BuildManager) -> Self {
-        Self {
-            config_path,
-            build_manager,
-        }
+            let project_config = prompt_manager
+                .generate_project_config(&description)
+                .await?;
+
+            let workflow = ProjectGenerationWorkflow::new(&project_config);
+
+            let project_path = workflow.generate_project_structure()?;
+
+            // Create project documentation
+            let doc_engine = FileDocumentationEngine::try_new(&project_path).await?;
+
+            // Generate initial documentation
+            let project_doc = Documentation {
+                id: name.clone(),
+                project: name.clone(),
+                title: format!("{} Project Configuration", name),
+                description: Some(description.clone()),
+                content: description.clone(),
+                doc_type: DocType::ProjectOverview,
+                path: project_path.join("docs").join("PROJECT_OVERVIEW.md"),
+                owner: String::new(),
+                priority: String::new(),
+                tags: vec![],
+                additional_info: HashMap::new(),
+                steps: vec![],
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                metadata: HashMap::new(),
+            };
+
+            doc_engine.create_doc(&project_doc).await?;
+
+            println!("Project '{}' generated successfully at: {}", name, project_path.display());
+            Ok(())
+        },
+        Some(Commands::Doc { project, doc_type, title, content }) => {
+            let doc_path = PathBuf::from("build").join(project);
+            let doc_engine = FileDocumentationEngine::try_new(&doc_path).await?;
+
+            let doc = Documentation {
+                id: title.clone(),
+                project: project.clone(),
+                title: title.clone(),
+                description: Some(content.clone()),
+                content: content.clone(),
+                doc_type: doc_type.clone(),
+                path: doc_path.join(format!("{}.md", title)),
+                owner: String::new(),
+                priority: String::new(),
+                tags: vec![],
+                additional_info: HashMap::new(),
+                steps: vec![],
+                created_at: Utc::now(),
+                updated_at: Utc::now(),
+                metadata: HashMap::new(),
+            };
+
+            doc_engine.create_doc(&doc).await?;
+
+            Ok(())
+        },
+        None => Ok(()),
     }
-
-    pub async fn execute_command(&self, action: &str, args: &[&str]) -> Result<()> {
-        match action {
-            "build" => {
-                let cmd = BuildCommand::try_parse_from(std::iter::once("build").chain(args.iter().map(|s| *s)))
-                    .map_err(|e| anyhow::anyhow!("Failed to parse build command: {}", e))?;
-                let task_id = self.create_build_task(&Command {
-                    action: "build".to_string(),
-                    target: cmd.target,
-                }).await?;
-                self.build_manager.execute_task(&task_id).await?;
-            }
-            _ => anyhow::bail!("Unknown command: {}", action),
-        }
-        Ok(())
-    }
-
-    async fn create_build_task(&self, command: &Command) -> Result<TaskId> {
-        let task_id = TaskId::new(&format!("build-{}", Utc::now().timestamp()));
-        let task = crate::state::types::TaskState {
-            id: task_id.clone(),
-            status: crate::state::types::TaskStatus::Pending,
-            metadata: crate::state::types::TaskMetadata {
-                name: command.target.clone(),
-                description: Some("Build task".to_string()),
-                owner: "system".to_string(),
-                dependencies: vec![],
-                estimated_duration: std::time::Duration::from_secs(300),
-                priority: 1,
-                tags: vec!["build".to_string()],
-                additional_info: {
-                    let mut info = std::collections::HashMap::new();
-                    info.insert("command".to_string(), command.target.clone());
-                    info
-                },
-            },
-            created_at: Utc::now(),
-            updated_at: Utc::now(),
-        };
-        self.build_manager.state_manager.create_task(task).await?;
-        Ok(task_id)
-    }
 }
-
-#[cfg(test)]
-mod tests;

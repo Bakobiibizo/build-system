@@ -3,123 +3,85 @@
 ## Overview
 This system is a comprehensive, modular framework for AI-powered project generation and management. It provides a flexible, extensible platform for creating software projects using advanced AI technologies.
 
+## Project Structure
+
+### Directory Layout
+```
+src/
+├── cli/           # Command-line interface and entry point
+├── config/        # Configuration management
+├── doc/           # Documentation generation tools
+├── error/         # Custom error handling
+├── llm/           # Large Language Model integration
+├── logging/       # Logging and monitoring
+├── prompt/        # AI-driven prompt generation and management
+│   └── templates/ # Project template management
+├── state/         # State tracking and management
+└── tools/         # Tool system and extensibility
+```
+
 ## Core Architectural Components
 
-### 1. Overseer AI Model
-- Highest level of abstraction
-- Coordinates project generation workflow
-- Manages tool invocation and decision-making
-- Orchestrates interactions between system components
+### 1. Command-Line Interface (`cli/`)
+- Handles user interactions and command parsing
+- Provides a flexible subcommand system
+- Manages project generation workflow
 
-### 2. Tool System
-#### Purpose
-- Implements a flexible, extensible tool protocol
-- Supports dynamic tool registration and execution
-- Provides a standardized interface for AI-driven tools
+### 2. Prompt Generation (`prompt/`)
+- Generates project configurations
+- Manages project templates
+- Provides AI-driven project initialization
 
-#### Key Features
-- Dynamic tool registration
-- Standardized tool call mechanism
-- Robust error handling
-- Support for complex, multi-parameter tools
+### 3. Project Generation (`project_generator/`)
+- Implements project structure creation
+- Generates boilerplate code and files
+- Supports customizable project initialization
 
-#### Future Enhancements
-- Enhanced parameter validation
-- More sophisticated tool discovery
-- Support for nested/dependent tool calls
+### 4. Documentation Generation (`doc/`)
+- Creates project documentation
+- Supports multiple documentation formats
+- Integrates with project generation workflow
 
-### 3. State Management
-#### Purpose
+### 5. Configuration Management (`config/`)
+- Handles system and project configurations
+- Provides flexible configuration loading
+- Supports environment-specific settings
+
+### 6. State Management (`state/`)
 - Tracks project generation state
-- Manages task dependencies and execution
-- Provides robust state tracking and error handling
+- Manages task dependencies
+- Provides robust error handling
 
-#### Key Components
-- Task State Management
-- Dependency Graph Resolution
-- Atomic State Updates
-- Comprehensive Logging
+### 7. Logging and Monitoring (`logging/`)
+- Implements comprehensive logging
+- Supports different log levels
+- Provides insights into system operations
 
-#### Workflow
-```
-Pending 
-  ↓ (start)
-Running 
-  ↓ (success)
-Completed
-  ↓ (failure)
-Failed
-```
+### 8. Error Handling (`error/`)
+- Custom error types
+- Centralized error management
+- Detailed error reporting
 
-### 4. Prompt Handling
-- Manages prompt generation and processing
-- Supports multiple prompt types and strategies
-- Provides template-based prompt generation
-- Handles context injection and safety mechanisms
+### 9. Large Language Model Integration (`llm/`)
+- AI-powered code generation
+- Intelligent project suggestions
+- Natural language processing
 
-### 5. Inference Interface
-#### Purpose
-- Abstracts AI model interactions
-- Supports streaming and non-streaming responses
-- Handles different AI provider integrations
+### 10. Tools System (`tools/`)
+- Extensible tool framework
+- Dynamic tool registration
+- Standardized tool execution interface
 
-#### Key Features
-- Provider Abstraction
-- Streaming Support
-- Configurable Inference
-- Robust Error Handling
-
-#### Provider Strategy
-- Primary: OpenAI
-- Future Support:
-  - Anthropic Claude
-  - Google PaLM
-  - Local LLM models
-
-### 6. Project Generation Tool
-#### Purpose
-- Specific tool for implementing project structures
-- Generates project files based on AI specifications
-- Supports multi-phase project creation
-
-#### Key Responsibilities
-- Parse project design specifications
-- Generate project directory structures
-- Create initial project files
-- Provide metadata and tracking
-
-### 7. Documentation Tools
-- Generates and manages project documentation
-- Supports various documentation formats
-- Provides content validation
-- Enables search functionality
-
-## Design Principles
+## Key Design Principles
 - Modularity
-- Separation of Concerns
 - Extensibility
-- AI-Driven Workflow
+- AI-Driven Automation
+- Robust Error Handling
 - Flexible Configuration
-- Minimal Runtime Overhead
-
-## Workflow
-1. Ingest Project Requirements
-2. Generate Architectural Design
-3. Create Project Skeleton
-4. Implement Individual Components
-5. Validate and Refine Project
-
-## Technology Stack
-- Language: Rust
-- AI Integration: OpenAI, Multi-Provider Support
-- State Management: Async Rust
-- Serialization: serde
-- Logging: tracing
 
 ## Future Roadmap
-- Multi-Language Support
-- Enhanced AI Model Integration
-- Advanced State Tracking
-- Comprehensive Testing Framework
-- Distributed Workflow Management
-- Machine Learning-Assisted Predictions
+- Enhanced AI model integration
+- More sophisticated project templates
+- Improved code generation capabilities
+- Advanced dependency management
+- Cross-language project generation support

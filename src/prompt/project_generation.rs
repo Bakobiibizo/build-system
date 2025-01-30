@@ -1,6 +1,9 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
+// Re-export ProjectType from prompt/mod.rs
+pub use crate::prompt::ProjectType;
+
 /// Represents a comprehensive project generation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectGenerationConfig {
@@ -194,6 +197,15 @@ impl ProjectGenerationConfig {
         config
     }
 }
+
+// Type aliases for backward compatibility
+pub use crate::prompt::{
+    ProjectConfig,
+    ProjectType,
+    DependencyConfig,
+    BuildConfig,
+    BuildScripts,
+};
 
 #[cfg(test)]
 mod tests {

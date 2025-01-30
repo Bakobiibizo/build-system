@@ -1,130 +1,69 @@
 use anyhow::Result;
-use build_system::prompt::{PromptManager, TaskConfig};
-use mockall::automock;
 use std::collections::HashMap;
-use tempfile::TempDir;
-use tokio::fs;
-use async_trait::async_trait;
+use build_system::prompt::{
+    Prompt, 
+    PromptManager, 
+    ProjectConfig,
+    ProjectType,
+    DependencyConfig
+};
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use mockall::predicate::eq;
-
-    #[automock]
-    #[async_trait]
-    pub trait TestPromptProcessor: Send + Sync {
-        async fn process_response(&self, response: String) -> Result<()>;
-    }
-
-    #[async_trait]
-    impl TestPromptProcessor for PromptManager {
-        async fn process_response(&self, _response: String) -> Result<()> {
-            Ok(())
-        }
-    }
 
     #[tokio::test]
-    async fn test_prompt_manager_creation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let template_dir = temp_dir.path().to_string_lossy().to_string();
-        
-        // Create a test template
-        fs::write(
-            temp_dir.path().join("system.prompt"),
-            "You are a test build system assistant.",
-        ).await?;
-        
-        let manager = PromptManager::new(template_dir).await;
-        let prompt = manager.create_prompt("test request".to_string(), None).await?;
-        
-        assert_eq!(prompt.system_context, "You are a test build system assistant.");
-        assert_eq!(prompt.user_request, "test request");
-        assert!(prompt.build_context.is_none());
-        
+    async fn test_prompt_creation() -> Result<()> {
+        let prompt = Prompt::new(
+            "You are an AI assistant",
+            "Help me create a project"
+        );
+
+        assert_eq!(prompt.system_context, "You are an AI assistant");
+        assert_eq!(prompt.user_request, "Help me create a project");
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_task_interpretation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let template_dir = temp_dir.path().to_string_lossy().to_string();
-        let manager = PromptManager::new(template_dir).await;
-        
-        let request = r#"
-        Build task test_task
-        Depends: task1, task2
-        Resource: memory=2GB
-        Resource: cpu=4
-        This is a test task description
-        "#;
-        
-        let config = manager.interpret_task(request)?;
-        
-        assert_eq!(config.name, "test_task");
-        assert_eq!(config.dependencies, vec!["task1", "task2"]);
-        assert_eq!(config.resources.get("memory"), Some(&"2GB".to_string()));
-        assert_eq!(config.resources.get("cpu"), Some(&"4".to_string()));
-        assert!(config.description.contains("This is a test task description"));
-        
+    async fn test_prompt_manager_initialization() -> Result<()> {
+        let _prompt_manager = PromptManager::new("./templates")?;
         Ok(())
     }
 
     #[tokio::test]
-    async fn test_build_step_generation() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let template_dir = temp_dir.path().to_string_lossy().to_string();
-        let manager = PromptManager::new(template_dir).await;
-        
-        let mut resources = HashMap::new();
-        resources.insert("memory".to_string(), "2GB".to_string());
-        
-        let config = TaskConfig {
-            name: "test_task".to_string(),
-            description: "Test task".to_string(),
-            dependencies: vec!["dep1".to_string()],
-            resources,
+    async fn test_project_config_creation() -> Result<()> {
+        let mut dependencies = HashMap::new();
+        dependencies.insert("production_dep1".to_string(), "version1".to_string());
+        dependencies.insert("development_dep1".to_string(), "version2".to_string());
+
+        let dependency_config = DependencyConfig {
+            production: dependencies.clone(),
+            development: HashMap::new(),
+        };
+
+        let project_config = ProjectConfig {
+            project_name: "test_project".to_string(),
+            project_type: Some(ProjectType::WebApplication),
+            description: Some("A test project".to_string()),
+            dependencies: Some(dependency_config),
+            ..Default::default()
+        };
+
+        assert_eq!(project_config.project_name, "test_project");
+        assert!(project_config.project_type.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_project_config_technologies() -> Result<()> {
+        let project_config = ProjectConfig {
+            project_name: "test_task".to_string(),
+            technologies: vec!["Rust".to_string(), "Tokio".to_string()],
+            ..Default::default()
         };
         
-        let steps = manager.generate_build_steps(&config)?;
-        
-        assert!(!steps.is_empty());
-        assert_eq!(steps[0].task_config.name, "test_task");
-        assert_eq!(steps[0].command, "echo 'Building test_task'");
-        
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_prompt_processing() -> Result<()> {
-        let temp_dir = TempDir::new()?;
-        let template_dir = temp_dir.path().to_string_lossy().to_string();
-        let manager = PromptManager::new(template_dir).await;
-        
-        let response = r#"
-        Build task test_task
-        Depends: task1
-        Resource: memory=1GB
-        Test task description
-        "#;
-        
-        // Test that processing doesn't fail
-        TestPromptProcessor::process_response(&manager, response.to_string()).await?;
-        
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn test_prompt_processor_mock() -> Result<()> {
-        let mut mock = MockTestPromptProcessor::new();
-        
-        mock.expect_process_response()
-            .with(eq("test response".to_string()))
-            .times(1)
-            .returning(|_| Ok(()));
-        
-        mock.process_response("test response".to_string()).await?;
-        
+        assert_eq!(project_config.project_name, "test_task");
+        assert!(project_config.technologies.is_sorted());
         Ok(())
     }
 }

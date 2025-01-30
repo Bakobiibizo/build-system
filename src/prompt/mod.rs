@@ -1,37 +1,158 @@
 use anyhow::{Context, Result};
 use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json;
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::fs;
+use std::path::Path;
 use tokio::fs as tokio_fs;
-use tokio::io::AsyncWriteExt;
+use regex::Regex;
+use chrono;
+use std::path::PathBuf;
+
 use crate::inference::InferenceClient;
-use crate::state::types::TaskId;
 
-mod project_generation;
-pub use project_generation::*;
+#[derive(Debug, Clone, Deserialize, Serialize, Default)]
+pub struct ProjectConfig {
+    pub project_name: String,
+    pub description: Option<String>,
+    pub technologies: Vec<String>,
+    pub project_type: Option<ProjectType>,
+    pub language: Option<String>,
+    pub framework: Option<String>,
+    pub architecture: Option<String>,
+    pub dependencies: Option<DependencyConfig>,
+    pub build_config: Option<BuildConfig>,
+    pub directory_structure: Option<HashMap<String, Vec<String>>>,
+    pub initialization_commands: Option<Vec<String>>,
+    pub recommendations: Option<Vec<String>>,
+    pub additional_config: Option<HashMap<String, String>>,
+}
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct TaskConfig {
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub enum ProjectType {
+    WebApplication,
+    CommandLineInterface,
+    Library,
+    MicroService,
+    DesktopApplication,
+    MobileApplication,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct DependencyConfig {
+    pub production: HashMap<String, String>,
+    pub development: HashMap<String, String>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BuildConfig {
+    pub build_tool: String,
+    pub scripts: BuildScripts,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct BuildScripts {
+    pub dev: String,
+    pub build: String,
+    pub test: String,
+}
+
+impl ProjectConfig {
+    pub fn new(name: &str) -> Self {
+        Self {
+            project_name: name.to_string(),
+            ..Default::default()
+        }
+    }
+
+    pub fn with_description(mut self, description: &str) -> Self {
+        self.description = Some(description.to_string());
+        self
+    }
+
+    pub fn with_technologies(mut self, technologies: Vec<String>) -> Self {
+        self.technologies = technologies;
+        self
+    }
+
+    pub fn with_project_type(mut self, project_type: ProjectType) -> Self {
+        self.project_type = Some(project_type);
+        self
+    }
+
+    pub fn with_language(mut self, language: &str) -> Self {
+        self.language = Some(language.to_string());
+        self
+    }
+
+    pub fn with_framework(mut self, framework: &str) -> Self {
+        self.framework = Some(framework.to_string());
+        self
+    }
+
+    pub fn with_dependencies(mut self, dependencies: DependencyConfig) -> Self {
+        self.dependencies = Some(dependencies);
+        self
+    }
+
+    pub fn with_build_config(mut self, build_config: BuildConfig) -> Self {
+        self.build_config = Some(build_config);
+        self
+    }
+
+    pub fn with_directory_structure(mut self, directory_structure: HashMap<String, Vec<String>>) -> Self {
+        self.directory_structure = Some(directory_structure);
+        self
+    }
+
+    pub fn with_initialization_commands(mut self, initialization_commands: Vec<String>) -> Self {
+        self.initialization_commands = Some(initialization_commands);
+        self
+    }
+
+    pub fn with_recommendations(mut self, recommendations: Vec<String>) -> Self {
+        self.recommendations = Some(recommendations);
+        self
+    }
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct PromptProjectConfig {
     pub name: String,
-    pub description: String,
-    pub dependencies: Vec<String>,
-    pub resources: HashMap<String, String>,
+    pub description: Option<String>,
+    pub technologies: Option<Vec<String>>,
+    // Add other fields as needed
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildStep {
-    pub task_config: TaskConfig,
-    pub command: String,
-    pub args: Vec<String>,
-    pub env: HashMap<String, String>,
+#[derive(Debug, Clone, Deserialize, Serialize)]
+pub struct ProjectGenerationConfig {
+    pub project_name: String,
+    pub project_type: ProjectType,
+    pub language: String,
+    pub framework: String,
+    pub dependencies: DependencyConfig,
+    pub build_config: BuildConfig,
+    pub directory_structure: HashMap<String, Vec<String>>,
+    pub initialization_commands: Vec<String>,
+    pub recommendations: Vec<String>,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Deserialize, Serialize)]
 pub struct Prompt {
     pub system_context: String,
     pub user_request: String,
     pub build_context: Option<String>,
+}
+
+impl Prompt {
+    pub fn new(system_context: &str, user_request: &str) -> Self {
+        Self {
+            system_context: system_context.to_string(),
+            user_request: user_request.to_string(),
+            build_context: None,
+        }
+    }
 }
 
 #[async_trait]
@@ -39,321 +160,161 @@ pub trait PromptProcessor: Send + Sync {
     async fn process_response(&self, response: String) -> Result<()>;
 }
 
-#[derive(Debug)]
 pub struct PromptManager {
     template_dir: String,
-    templates: HashMap<String, String>,
 }
 
 impl PromptManager {
-    pub fn new(template_dir: String) -> Result<Self> {
-        let mut templates = HashMap::new();
-        
-        // Try to load project generation template
-        let template_path = PathBuf::from(&template_dir).join("project_generation_prompt.md");
-        if template_path.exists() {
-            let template_content = std::fs::read_to_string(&template_path)
-                .context("Failed to read project generation template")?;
-            templates.insert("project_generation_prompt".to_string(), template_content);
-        }
+    pub fn new(template_dir: &str) -> Result<Self> {
+        let template_path = PathBuf::from(template_dir);
+        fs::create_dir_all(&template_path)?;
+
+        // Write task execution prompt template
+        let task_prompt_path = template_path.join("task_execution_prompt.txt");
+        fs::write(&task_prompt_path, include_str!("task_execution_prompt.txt"))?;
 
         Ok(Self {
-            templates,
-            template_dir,
+            template_dir: template_dir.to_string(),
         })
     }
 
-    pub async fn create_prompt(
-        &self,
-        user_request: String,
-        build_context: Option<String>,
-    ) -> Result<Prompt> {
-        let system_context = self.get_system_context()?;
-        Ok(Prompt {
-            system_context,
-            user_request,
-            build_context,
-        })
-    }
-
-    fn get_system_context(&self) -> Result<String> {
-        self.templates
-            .get("system")
-            .cloned()
-            .ok_or_else(|| anyhow::anyhow!("System prompt template not found"))
-    }
-
-    pub fn interpret_task(&self, task_str: &str) -> Result<TaskConfig> {
-        let mut name = String::new();
-        let mut description = String::new();
-        let mut dependencies = Vec::new();
-        let mut resources = HashMap::new();
-
-        for line in task_str.lines() {
-            let line = line.trim();
-            if line.starts_with("Build task") {
-                name = line["Build task".len()..].trim().to_string();
-            } else if line.starts_with("Depends:") {
-                dependencies = line["Depends:".len()..]
-                    .split(',')
-                    .map(|s| s.trim().to_string())
-                    .collect();
-            } else if line.starts_with("Resource:") {
-                let parts: Vec<&str> = line["Resource:".len()..].split('=').collect();
-                if parts.len() == 2 {
-                    resources.insert(
-                        parts[0].trim().to_string(),
-                        parts[1].trim().to_string(),
+    pub async fn load_templates(&self) -> Result<HashMap<String, String>> {
+        let mut templates = HashMap::new();
+        let template_path = PathBuf::from(&self.template_dir);
+        
+        if template_path.exists() && template_path.is_dir() {
+            let mut read_dir = tokio_fs::read_dir(template_path).await?;
+            while let Some(entry) = read_dir.next_entry().await? {
+                if let Some(name) = entry.path().file_stem() {
+                    let template_content = tokio_fs::read_to_string(entry.path()).await?;
+                    templates.insert(
+                        name.to_string_lossy().to_string(), 
+                        template_content
                     );
                 }
-            } else {
-                description.push_str(line);
-                description.push('\n');
             }
         }
-
-        Ok(TaskConfig {
-            name,
-            description: description.trim().to_string(),
-            dependencies,
-            resources,
-        })
-    }
-
-    pub fn generate_build_steps(&self, config: &TaskConfig) -> Result<Vec<BuildStep>> {
-        let step = BuildStep {
-            task_config: TaskConfig {
-                name: config.name.clone(),
-                description: config.description.clone(),
-                dependencies: config.dependencies.clone(),
-                resources: config.resources.clone(),
-            },
-            command: format!("echo 'Building {}'", config.name),
-            args: vec![],
-            env: HashMap::new(),
-        };
-        Ok(vec![step])
-    }
-
-    /// Process a project generation request
-    pub async fn generate_project(&self, user_request: &str) -> Result<ProjectConfig> {
-        // Retrieve the project generation template
-        let template = self.templates.get("project_generation_prompt")
-            .cloned()
-            .unwrap_or_else(|| "Generate a project configuration based on the user's request.".to_string());
-
-        // Initialize inference client
-        let inference_client = InferenceClient::new()?;
-
-        // Prepare AI prompt for project generation
-        let system_context = format!(
-            "{}\n\nUser Request: {}",
-            template,
-            user_request
-        );
-
-        let inference_prompt = Prompt {
-            system_context,
-            user_request: "Generate a comprehensive project configuration in JSON format.".to_string(),
-            build_context: None,
-        };
-
-        // Use AI to generate project configuration
-        let (response, _status) = inference_client
-            .execute_task_prompt(&inference_prompt, &TaskId::new("project_generation"))
-            .await?;
-
-        // Parse AI response into ProjectConfig
-        let config = self.parse_project_config(response).await?;
-
-        // Create project structure based on AI-generated config
-        self.create_project_structure(&config).await?;
-
-        Ok(config)
-    }
-
-    /// Create project directory and files based on configuration
-    async fn create_project_structure(&self, config: &ProjectConfig) -> Result<()> {
-        let project_root = PathBuf::from(&config.project_name);
         
-        // Create root project directory
-        tokio_fs::create_dir_all(&project_root).await?;
+        Ok(templates)
+    }
 
-        // Create directory structure
-        for (dir_name, files) in &config.directory_structure.root {
-            let dir_path = project_root.join(dir_name);
-            tokio_fs::create_dir_all(&dir_path).await?;
+    pub async fn generate_project_config(&self, user_request: &str) -> Result<ProjectConfig> {
+        // Read the task execution prompt template
+        let prompt_template_path = PathBuf::from(&self.template_dir).join("task_execution_prompt.txt");
+        let prompt_template = fs::read_to_string(prompt_template_path)?;
 
-            // Create placeholder files
-            for file_name in files {
-                let file_path = dir_path.join(file_name);
-                let mut file = tokio_fs::File::create(file_path).await?;
-                
-                // Add some basic content based on file type
-                let content = match file_name.as_str() {
-                    "main.rs" => format!(
-                        "use actix_web::{{web, App, HttpResponse, HttpServer, Responder}};\n\n\
-                        #[actix_web::main]\n\
-                        async fn main() -> std::io::Result<()> {{\n\
-                            HttpServer::new(|| {{\n\
-                                App::new()\n\
-                                    .route(\"/\", web::get().to(index))\n\
-                            }})\n\
-                            .bind(\"127.0.0.1:8080\")?\n\
-                            .run()\n\
-                            .await\n\
-                        }}\n\n\
-                        async fn index() -> impl Responder {{\n\
-                            HttpResponse::Ok().body(\"{} Web Application\".to_string())\n\
-                        }}\n", 
-                        config.project_name
-                    ),
-                    "routes.rs" => "// API routes will be defined here\n".to_string(),
-                    "models.rs" => "// Data models will be defined here\n".to_string(),
-                    "db.rs" => "// Database connection and queries will be defined here\n".to_string(),
-                    "integration_tests.rs" => "// Integration tests will be defined here\n".to_string(),
-                    "20240128_create_tasks_table.sql" => 
-                        "CREATE TABLE IF NOT EXISTS tasks (\n\
-                            id SERIAL PRIMARY KEY,\n\
-                            title VARCHAR(255) NOT NULL,\n\
-                            description TEXT,\n\
-                            status VARCHAR(50) DEFAULT 'pending'\n\
-                        );\n".to_string(),
-                    _ => String::new(),
-                };
+        // Construct the full prompt by combining the template with the user request
+        let full_prompt = format!(
+            "{}\n\n## User Request\n{}\n\n## Generate Configuration Based on Request",
+            prompt_template, user_request
+        );
 
-                file.write_all(content.as_bytes()).await?;
+        // Log the full prompt for debugging
+        println!("Full Prompt for Project Config Generation:\n{}", full_prompt);
+
+        // Use inference client to generate project configuration
+        let inference_client = InferenceClient::new()?;
+        let generated_config_json = inference_client.generate_project_config(&full_prompt).await?;
+
+        // Log the generated JSON for debugging
+        println!("Generated Project Config JSON:\n{}", generated_config_json);
+
+        // Parse the generated JSON into ProjectConfig
+        let project_config: ProjectConfig = serde_json::from_str(&generated_config_json)
+            .context("Failed to parse generated project configuration")?;
+
+        Ok(project_config)
+    }
+
+    pub async fn list_templates(&self) -> Result<Vec<String>> {
+        let template_path = PathBuf::from(&self.template_dir);
+        let mut templates = Vec::new();
+
+        if template_path.exists() && template_path.is_dir() {
+            let mut read_dir = tokio_fs::read_dir(template_path).await?;
+            while let Some(entry) = read_dir.next_entry().await? {
+                if let Some(name) = entry.path().file_stem() {
+                    templates.push(name.to_string_lossy().to_string());
+                }
             }
         }
 
-        // Create Cargo.toml
-        let cargo_toml_path = project_root.join("Cargo.toml");
-        let mut cargo_toml = tokio_fs::File::create(cargo_toml_path).await?;
-        let cargo_toml_content = format!(
-            "[package]\n\
-            name = \"{}\"\n\
-            version = \"0.1.0\"\n\
-            edition = \"2021\"\n\n\
-            [dependencies]\n{}\n\n\
-            [dev-dependencies]\n{}\n",
-            config.project_name,
-            config.dependencies.production.iter()
-                .map(|(k, v)| format!("{} = \"{}\"\n", k, v))
-                .collect::<String>(),
-            config.dependencies.development.iter()
-                .map(|(k, v)| format!("{} = \"{}\"\n", k, v))
-                .collect::<String>()
-        );
-        cargo_toml.write_all(cargo_toml_content.as_bytes()).await?;
-
-        // Create README.md
-        let readme_path = project_root.join("README.md");
-        let mut readme = tokio_fs::File::create(readme_path).await?;
-        let readme_content = format!(
-            "# {}\n\n\
-            ## Project Overview\n\
-            A {} {} built with {}.\n\n\
-            ## Getting Started\n\
-            ```bash\n\
-            {} # Initialization command\n\
-            {} # Install dependencies\n\
-            {} # Run development server\n\
-            ```\n\n\
-            ## Recommendations\n{}\n",
-            config.project_name,
-            config.project_type,
-            config.project_name,
-            config.framework,
-            config.initialization_commands.get(0).cloned().unwrap_or_default(),
-            config.initialization_commands.get(1).cloned().unwrap_or_default(),
-            config.initialization_commands.get(2).cloned().unwrap_or_default(),
-            config.recommendations.join("\n- ")
-        );
-        readme.write_all(readme_content.as_bytes()).await?;
-
-        Ok(())
+        Ok(templates)
     }
 
-    async fn parse_project_config(&self, response: String) -> Result<ProjectConfig> {
-        // Use anyhow's context for error handling
-        let config: ProjectConfig = serde_json::from_str(&response)
-            .with_context(|| format!("Failed to parse project configuration from AI response: {}", response))?;
+    pub async fn parse_response(&self, response: &str) -> Result<ProjectConfig> {
+        // Log the raw response
+        println!("Raw response received: {:?}", response);
 
-        // Validate project configuration
-        self.validate_project_config(&config)?;
+        // Ensure .reference/ai_responses directory exists
+        let save_dir = PathBuf::from(".reference/ai_responses");
+        std::fs::create_dir_all(&save_dir).map_err(|e| {
+            eprintln!("Failed to create response save directory: {}", e);
+            anyhow::anyhow!("Failed to create response save directory: {}", e)
+        })?;
 
-        Ok(config)
+        // Generate unique filename with timestamp
+        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
+        let save_path = save_dir.join(format!("project_config_response_{}.txt", timestamp));
+        
+        // Save the full response
+        std::fs::write(&save_path, response).map_err(|e| {
+            eprintln!("Failed to save response to {}: {}", save_path.display(), e);
+            anyhow::anyhow!("Failed to save response to {}: {}", save_path.display(), e)
+        })?;
+
+        // Attempt parsing methods with detailed logging
+        println!("Attempting to parse entire response as JSON");
+        if let Ok(project_config) = serde_json::from_str(response) {
+            return Ok(project_config);
+        }
+
+        println!("Attempting to extract JSON from response tags");
+        let re = Regex::new(r"<response>(.*?)</response>").unwrap();
+        if let Some(caps) = re.captures(response) {
+            let response_text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
+            println!("Extracted response text: {:?}", response_text);
+            if let Ok(project_config) = serde_json::from_str(response_text) {
+                return Ok(project_config);
+            }
+        }
+
+        println!("Attempting to find first JSON-like block");
+        let json_re = Regex::new(r"\{[^}]+\}").unwrap();
+        if let Some(json_match) = json_re.find(response) {
+            let json_text = json_match.as_str();
+            println!("Found JSON-like block: {:?}", json_text);
+            if let Ok(project_config) = serde_json::from_str(json_text) {
+                return Ok(project_config);
+            }
+        }
+
+        // If all parsing attempts fail, return an error with the saved file path
+        Err(anyhow::anyhow!(
+            "Failed to parse project configuration from response. Raw response saved to {}",
+            save_path.display()
+        ))
     }
-
-    fn validate_project_config(&self, config: &ProjectConfig) -> Result<()> {
-        // Validate project name (kebab-case)
-        if config.project_name.is_empty() {
-            return Err(anyhow::anyhow!("Project name cannot be empty"));
-        }
-
-        // Validate language and framework naming conventions
-        if !config.language.chars().all(|c| c.is_lowercase() || c == '-') {
-            return Err(anyhow::anyhow!("Language must be lowercase"));
-        }
-
-        if !config.framework.chars().all(|c| c.is_lowercase() || c == '-') {
-            return Err(anyhow::anyhow!("Framework must be lowercase"));
-        }
-
-        Ok(())
-    }
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ProjectConfig {
-    pub project_name: String,
-    pub language: String,
-    pub framework: String,
-    pub project_type: String,
-    pub directory_structure: DirectoryStructure,
-    pub dependencies: ProjectDependencies,
-    pub build_config: BuildConfig,
-    pub initialization_commands: Vec<String>,
-    pub recommendations: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct DirectoryStructure {
-    pub root: HashMap<String, Vec<String>>,
-    pub src: Vec<String>,
-    pub tests: Vec<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ProjectDependencies {
-    pub production: HashMap<String, String>,
-    pub development: HashMap<String, String>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BuildConfig {
-    pub build_tool: String,
-    pub scripts: BuildScripts,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct BuildScripts {
-    pub dev: String,
-    pub build: String,
-    pub test: String,
 }
 
 #[async_trait]
 impl PromptProcessor for PromptManager {
-    async fn process_response(&self, response: String) -> Result<()> {
-        let config = self.interpret_task(&response)?;
-        let build_steps = self.generate_build_steps(&config)?;
-        
-        // In a real system, you might want to execute these build steps
-        for step in build_steps {
-            println!("Executing build step: {:?}", step);
-        }
-        
+    async fn process_response(&self, _response: String) -> Result<()> {
+        // Placeholder implementation
         Ok(())
+    }
+}
+
+pub struct PromptGenerator;
+
+impl PromptGenerator {
+    pub fn generate_project_prompt(config: &ProjectConfig) -> Prompt {
+        Prompt::new(
+            "Generate a project configuration based on user requirements", 
+            &format!("Create a project named {} with description: {}", 
+                config.project_name, 
+                config.description.clone().unwrap_or_default()
+            )
+        )
     }
 }

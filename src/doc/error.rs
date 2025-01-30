@@ -1,25 +1,33 @@
 use thiserror::Error;
+use std::io;
+use serde_json;
 
-#[derive(Debug, Error)]
+#[derive(Error, Debug)]
 pub enum DocumentationError {
     #[error("IO error: {0}")]
-    IoError(#[from] std::io::Error),
-
-    #[error("Invalid path: {0}")]
-    InvalidPath(String),
-
-    #[error("Invalid document type: {0}")]
-    InvalidDocType(String),
-
-    #[error("Document not found: {0}")]
-    NotFound(String),
-
-    #[error("Document already exists: {0}")]
-    AlreadyExists(String),
+    IoError(#[from] io::Error),
 
     #[error("Serialization error: {0}")]
-    SerializationError(String),
+    SerializationError(#[from] serde_json::Error),
 
-    #[error("Deserialization error: {0}")]
-    DeserializationError(String),
+    #[error("Document not found")]
+    DocumentNotFound,
+
+    #[error("Permission denied")]
+    PermissionDenied,
+
+    #[error("Unknown documentation error: {0}")]
+    Other(String),
+}
+
+impl From<String> for DocumentationError {
+    fn from(message: String) -> Self {
+        DocumentationError::Other(message)
+    }
+}
+
+impl From<&str> for DocumentationError {
+    fn from(message: &str) -> Self {
+        DocumentationError::Other(message.to_string())
+    }
 }

@@ -1,16 +1,20 @@
-use std::collections::HashMap;
-use std::fs::{self, File};
-use std::io::Write;
-use std::path::Path;
+use std::fs::{self, File, create_dir_all};
+use std::io::{Write, Result as IoResult};
+use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 use serde_json;
+use std::collections::HashMap;
+use crate::project_generator::fs::DirBuilder;
 
-#[derive(Debug, Serialize, Deserialize)]
+use crate::tools::ExecutableTool;
+
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectDesign {
     pub project_name: String,
     pub system_architecture: Option<String>,
     pub design_principles: Option<Vec<String>>,
-    pub component_responsibilities: Option<HashMap<String, String>>,
+    #[serde(default)]
+    pub component_responsibilities: Option<Vec<String>>,
     pub error_handling: Option<ErrorHandling>,
     pub performance_scalability: Option<PerformanceScalability>,
     pub logging_monitoring: Option<LoggingMonitoring>,
@@ -18,39 +22,157 @@ pub struct ProjectDesign {
     pub recommendations: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ErrorHandling {
     pub timeout: Option<u32>,
     pub retry: Option<u32>,
     pub error_types: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct PerformanceScalability {
     pub caching: Option<String>,
     pub connection_pooling: Option<String>,
     pub load_balancing: Option<String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct LoggingMonitoring {
     pub log_levels: Option<Vec<String>>,
     pub log_storage: Option<String>,
     pub monitoring_tools: Option<Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ConfigurationManagement {
     pub config_file_format: Option<String>,
     pub environment_variables: Option<Vec<String>>,
     pub config_loading: Option<String>,
 }
 
-impl ProjectDesign {
-    pub fn generate_project_structure(&self) -> Result<(), std::io::Error> {
+#[derive(Debug, thiserror::Error)]
+pub enum ProjectGenerationError {
+    #[error("IO error during project generation")]
+    IoError(#[from] std::io::Error),
+}
+
+pub struct ProjectGenerationWorkflow {
+    config: crate::prompt::ProjectConfig,
+}
+
+impl ProjectGenerationWorkflow {
+    pub fn new(config: &crate::prompt::ProjectConfig) -> Self {
+        Self {
+            config: config.clone(),
+        }
+    }
+
+    pub fn generate_project_structure(&self) -> Result<PathBuf, ProjectGenerationError> {
         // Create project root directory
-        let project_root = Path::new(&self.project_name);
+        let project_root = PathBuf::from("build").join(&self.config.project_name);
         fs::create_dir_all(&project_root)?;
+
+        // Generate basic project structure
+        self.create_project_directories(&project_root)?;
+        self.generate_main_script(&project_root)?;
+        self.generate_readme(&project_root)?;
+        
+        Ok(project_root)
+    }
+
+    pub fn create_project_directories(&self, project_root: &Path) -> Result<(), std::io::Error> {
+        // Create standard project directories
+        let dirs = vec![
+            "src",
+            "tests",
+            "docs",
+            "config",
+            "scripts",
+        ];
+
+        for dir in dirs {
+            fs::create_dir_all(project_root.join(dir))?;
+        }
+
+        Ok(())
+    }
+
+    pub fn generate_main_script(&self, project_root: &Path) -> Result<(), std::io::Error> {
+        let main_script_path = project_root.join("src").join("main.py");
+        let mut main_script = File::create(main_script_path)?;
+        
+        writeln!(main_script, "# Main script for {}", self.config.project_name)?;
+        writeln!(main_script, "def main():")?;
+        writeln!(main_script, "    print('Hello, {}!')", self.config.project_name)?;
+        writeln!(main_script, "")?;
+        writeln!(main_script, "if __name__ == '__main__':")?;
+        writeln!(main_script, "    main()")?;
+
+        Ok(())
+    }
+
+    pub fn generate_readme(&self, project_root: &Path) -> Result<(), std::io::Error> {
+        let readme_path = project_root.join("README.md");
+        let mut readme = File::create(readme_path)?;
+        
+        writeln!(readme, "# {}", self.config.project_name)?;
+        writeln!(readme, "")?;
+        
+        // Handle optional description
+        if let Some(desc) = &self.config.description {
+            writeln!(readme, "{}", desc)?;
+        } else {
+            writeln!(readme, "A project description will be added soon.")?;
+        }
+        
+        writeln!(readme, "")?;
+        writeln!(readme, "## Getting Started")?;
+        writeln!(readme, "")?;
+        writeln!(readme, "### Prerequisites")?;
+        writeln!(readme, "")?;
+        writeln!(readme, "### Installation")?;
+
+        Ok(())
+    }
+
+    pub fn execute(&self, _arguments: &str) -> Result<String, String> {
+        Ok("Project generation workflow executed".to_string())
+    }
+}
+
+impl ExecutableTool for ProjectDesign {
+    fn execute(&self, arguments: &str) -> Result<String, String> {
+        // Parse the arguments as a JSON string representing project design
+        let design: ProjectDesign = serde_json::from_str(arguments)
+            .map_err(|e| format!("Failed to parse project design: {}", e))?;
+        
+        // Generate the project structure
+        let project_path = design.generate_project_structure()
+            .map_err(|e| format!("Failed to generate project structure: {}", e))?;
+        
+        // Return the project path as a string
+        Ok(project_path.to_string_lossy().to_string())
+    }
+}
+
+impl ProjectDesign {
+    pub fn generate_project_structure(&self) -> Result<PathBuf, std::io::Error> {
+        // Define build directory
+        let build_dir = Path::new("build");
+        fs::create_dir_all(&build_dir)?;
+
+        // Generate unique project directory in build folder
+        let project_root = build_dir.join(&self.project_name);
+        
+        // Ensure project directory is clean
+        if project_root.exists() {
+            fs::remove_dir_all(&project_root)?;
+        }
+        
+        // Create project directories
+        DirBuilder::new()
+            .recursive(true)
+            .create(&project_root)?;
 
         // Create standard directories
         let dirs = vec![
@@ -65,17 +187,20 @@ impl ProjectDesign {
         }
 
         // Generate key files
-        self.generate_readme(project_root)?;
-        self.generate_requirements(project_root)?;
-        self.generate_main_script(project_root)?;
-        self.generate_config_file(project_root)?;
-        self.generate_error_handler(project_root)?;
-        self.generate_logging_config(project_root)?;
+        self.generate_readme(&project_root)?;
+        self.generate_requirements(&project_root)?;
+        self.generate_main_script(&project_root)?;
+        self.generate_config_file(&project_root)?;
+        self.generate_error_handler(&project_root)?;
+        self.generate_logging_config(&project_root)?;
 
-        Ok(())
+        // Generate project metadata
+        self.generate_project_metadata(&project_root)?;
+
+        Ok(project_root)
     }
 
-    fn generate_readme(&self, project_root: &Path) -> Result<(), std::io::Error> {
+    pub fn generate_readme(&self, project_root: &Path) -> Result<(), std::io::Error> {
         let mut readme = File::create(project_root.join("README.md"))?;
         writeln!(readme, "# {}", self.project_name)?;
         
@@ -93,7 +218,7 @@ impl ProjectDesign {
         Ok(())
     }
 
-    fn generate_requirements(&self, project_root: &Path) -> Result<(), std::io::Error> {
+    pub fn generate_requirements(&self, project_root: &Path) -> Result<(), std::io::Error> {
         let mut req_file = File::create(project_root.join("requirements.txt"))?;
         writeln!(req_file, "openai>=1.0.0")?;
         writeln!(req_file, "python-dotenv>=0.21.0")?;
@@ -108,7 +233,7 @@ impl ProjectDesign {
         Ok(())
     }
 
-    fn generate_main_script(&self, project_root: &Path) -> Result<(), std::io::Error> {
+    pub fn generate_main_script(&self, project_root: &Path) -> Result<(), std::io::Error> {
         let mut main_script = File::create(project_root.join("src/main.py"))?;
         writeln!(main_script, r#"
 import openai
@@ -157,7 +282,7 @@ if __name__ == "__main__":
         Ok(())
     }
 
-    fn generate_config_file(&self, project_root: &Path) -> Result<(), std::io::Error> {
+    pub fn generate_config_file(&self, project_root: &Path) -> Result<(), std::io::Error> {
         let mut config_file = File::create(project_root.join(".env.example"))?;
         writeln!(config_file, "OPENAI_API_KEY=your_openai_api_key_here")?;
         
@@ -172,7 +297,7 @@ if __name__ == "__main__":
         Ok(())
     }
 
-    fn generate_error_handler(&self, project_root: &Path) -> Result<(), std::io::Error> {
+    pub fn generate_error_handler(&self, project_root: &Path) -> Result<(), std::io::Error> {
         let mut error_handler = File::create(project_root.join("src/error_handler.py"))?;
         writeln!(error_handler, r#"
 import time
@@ -215,7 +340,7 @@ def retry_with_backoff(
         Ok(())
     }
 
-    fn generate_logging_config(&self, project_root: &Path) -> Result<(), std::io::Error> {
+    pub fn generate_logging_config(&self, project_root: &Path) -> Result<(), std::io::Error> {
         let mut logging_config = File::create(project_root.join("src/logging_config.py"))?;
         writeln!(logging_config, r#"
 import logging
@@ -256,65 +381,22 @@ def setup_logging(log_level='INFO', log_file=None):
 
         Ok(())
     }
-}
 
-use crate::tools::{ExecutableTool, Tool, ToolParameters, ParameterDefinition};
+    pub fn generate_project_metadata(&self, project_root: &Path) -> Result<(), std::io::Error> {
+        let metadata_path = project_root.join(".project_metadata.json");
+        let metadata = serde_json::json!({
+            "project_name": self.project_name,
+            "system_architecture": self.system_architecture,
+            "design_principles": self.design_principles,
+            "generated_at": chrono::Utc::now().to_rfc3339()
+        });
 
-impl ExecutableTool for ProjectDesign {
-    fn execute(&self, arguments: &str) -> Result<String, String> {
-        // Parse arguments
-        let args: serde_json::Value = serde_json::from_str(arguments)
-            .map_err(|e| format!("Invalid arguments: {}", e))?;
+        fs::write(
+            metadata_path, 
+            serde_json::to_string_pretty(&metadata)?
+        )?;
 
-        // Extract project name and other parameters
-        let project_name = args.get("project_name")
-            .and_then(|v| v.as_str())
-            .unwrap_or("default_project");
-
-        // Generate project
-        match self.generate_project_structure() {
-            Ok(_) => Ok(format!("Project '{}' generated successfully", project_name)),
-            Err(e) => Err(format!("Project generation failed: {}", e)),
-        }
-    }
-}
-
-impl ProjectDesign {
-    pub fn get_tool_definition() -> Tool {
-        Tool {
-            name: "generate_project".to_string(),
-            description: "Generate a software project based on a design specification".to_string(),
-            parameters: ToolParameters {
-                param_type: "object".to_string(),
-                properties: HashMap::from([
-                    ("project_name".to_string(), ParameterDefinition {
-                        param_type: "string".to_string(),
-                        description: Some("Name of the project to generate".to_string()),
-                        enum_values: None,
-                    }),
-                    ("language".to_string(), ParameterDefinition {
-                        param_type: "string".to_string(),
-                        description: Some("Primary programming language".to_string()),
-                        enum_values: Some(vec![
-                            "python".to_string(), 
-                            "rust".to_string(), 
-                            "javascript".to_string()
-                        ]),
-                    }),
-                    ("project_type".to_string(), ParameterDefinition {
-                        param_type: "string".to_string(),
-                        description: Some("Type of project to generate".to_string()),
-                        enum_values: Some(vec![
-                            "api_client".to_string(),
-                            "web_app".to_string(),
-                            "cli_tool".to_string(),
-                            "library".to_string()
-                        ]),
-                    })
-                ]),
-                required: vec!["project_name".to_string()],
-            },
-        }
+        Ok(())
     }
 }
 
@@ -322,8 +404,7 @@ pub fn parse_project_design(design_json: &str) -> Result<ProjectDesign, serde_js
     serde_json::from_str(design_json)
 }
 
-pub fn generate_project(design_json: &str) -> Result<(), Box<dyn std::error::Error>> {
-    let project_design = parse_project_design(design_json)?;
-    project_design.generate_project_structure()?;
-    Ok(())
+pub fn generate_project(design_json: &str) -> Result<PathBuf, Box<dyn std::error::Error>> {
+    let design = parse_project_design(design_json)?;
+    design.generate_project_structure().map_err(|e| e.into())
 }

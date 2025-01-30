@@ -51,6 +51,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         let mut mock = MockDocumentationEngine::new();
@@ -82,6 +83,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         mock_doc_engine
@@ -113,6 +115,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         mock_doc_engine
@@ -145,6 +148,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         mock_doc_engine
@@ -185,6 +189,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         let doc_clone = doc.clone();
@@ -228,6 +233,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         let mut mock_doc_engine = MockDocumentationEngine::new();
@@ -272,6 +278,7 @@ mod tests {
             tags: vec!["test".to_string()],
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            metadata: HashMap::new(),
         };
 
         let doc_clone = doc.clone();
@@ -314,6 +321,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         let mut mock_doc_engine = MockDocumentationEngine::new();
@@ -358,6 +366,7 @@ mod tests {
             tags: vec!["test".to_string()],
             created_at: Utc::now(),
             updated_at: Utc::now(),
+            metadata: HashMap::new(),
         };
 
         let doc_clone = doc.clone();
@@ -404,6 +413,7 @@ mod tests {
                 priority: "high".to_string(),
                 owner: "test-owner".to_string(),
                 tags: vec!["test".to_string()],
+                metadata: HashMap::new(),
             },
             Documentation {
                 id: "test-doc-2".to_string(),
@@ -420,6 +430,7 @@ mod tests {
                 priority: "high".to_string(),
                 owner: "test-owner".to_string(),
                 tags: vec!["test".to_string()],
+                metadata: HashMap::new(),
             },
         ];
 
@@ -454,6 +465,7 @@ mod tests {
             priority: "high".to_string(),
             owner: "test-owner".to_string(),
             tags: vec!["test".to_string()],
+            metadata: HashMap::new(),
         };
 
         mock_doc_engine
@@ -477,10 +489,10 @@ mod tests {
             .expect_get_doc()
             .withf(|p: &Path| p.to_str() == Some("test/nonexistent.md"))
             .times(1)
-            .returning(|_| Err(DocumentationError::NotFound("Document not found".to_string())));
+            .returning(|_| Err(DocumentationError::DocumentNotFound));
 
         let result = mock_doc_engine.get_doc(path.as_path()).await;
-        assert!(matches!(result, Err(DocumentationError::NotFound(_))));
+        assert!(matches!(result, Err(DocumentationError::DocumentNotFound)));
         Ok(())
     }
 }

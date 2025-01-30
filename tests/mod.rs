@@ -3,6 +3,7 @@ pub mod prompt;
 pub mod build;
 pub mod doc;
 pub mod cli;
+pub mod inference;
 pub mod integration;
 
 #[cfg(test)]

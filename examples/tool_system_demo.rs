@@ -1,5 +1,5 @@
 use build_system::tools::{ToolRegistry, ToolCall};
-use build_system::project_generator::{ProjectDesign, parse_project_design};
+use build_system::project_generator::{parse_project_design};
 use uuid::Uuid;
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {

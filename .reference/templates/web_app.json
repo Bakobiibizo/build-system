@@ -1,0 +1,32 @@
+{
+    "project_name": "web_app_template",
+    "description": "A modern web application template with backend and frontend components",
+    "technologies": [
+        "rust",
+        "actix-web", 
+        "react",
+        "typescript"
+    ],
+    "architecture": {
+        "backend": {
+            "framework": "actix-web",
+            "database": "postgresql",
+            "orm": "sqlx"
+        },
+        "frontend": {
+            "framework": "react",
+            "state_management": "redux",
+            "styling": "tailwind"
+        }
+    },
+    "features": [
+        "authentication",
+        "api_documentation",
+        "logging",
+        "error_handling"
+    ],
+    "deployment": {
+        "containerization": "docker",
+        "ci_cd": "github_actions"
+    }
+}
