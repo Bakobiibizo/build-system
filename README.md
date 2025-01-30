@@ -25,6 +25,12 @@ A Rust-based build system with intelligent task management, state tracking, and 
   - Async response processing
   - Robust error handling
 
+- AI-Powered Project Generation
+  - AI-driven project structure creation
+  - Customizable project templates
+  - Intelligent dependency selection
+  - Cross-language project generation support
+
 ## Installation
 
 Add this to your `Cargo.toml`:
@@ -109,6 +115,52 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 }
 ```
 
+### AI-Powered Project Generation
+
+#### Inference Client
+
+The build system includes an advanced AI inference client that can:
+- Generate project configurations
+- Stream AI completions
+- Process task prompts with intelligent routing
+
+#### Configuration
+
+Create a `.env` file with the following configuration:
+
+```bash
+# OpenAI or compatible API configuration
+INFERENCE_API_BASE_URL=https://api.openai.com/v1
+INFERENCE_API_KEY=your_api_key
+INFERENCE_API_MODEL=gpt-3.5-turbo
+INFERENCE_API_TEMPERATURE=0.6
+```
+
+#### Example Usage
+
+```rust
+use build_system::inference::InferenceClient;
+use build_system::prompt::Prompt;
+
+#[tokio::main]
+async fn main() -> Result<()> {
+    // Initialize AI inference client
+    let inference_client = InferenceClient::new()?;
+
+    // Create a project generation prompt
+    let prompt = Prompt {
+        system_context: "You are an expert software architect.".to_string(),
+        user_request: "Generate a project structure for a task management app".to_string(),
+        build_context: None,
+    };
+
+    // Generate project configuration
+    let (response, status) = inference_client
+        .execute_task_prompt(&prompt, &TaskId::new("project_generation"))
+        .await?;
+}
+```
+
 ## Testing
 
 Run the test suite:
@@ -139,6 +191,12 @@ The core functionality is implemented and tested:
 - Template management
 - Response processing
 
+✅ AI-Powered Project Generation
+- AI-driven project structure creation
+- Customizable project templates
+- Intelligent dependency selection
+- Cross-language project generation support
+
 The library is ready for testing with basic functionality. However, some planned features are still in development:
 
 🚧 In Progress
@@ -146,6 +204,22 @@ The library is ready for testing with basic functionality. However, some planned
 - Advanced task scheduling
 - Build artifact caching
 - Performance monitoring
+
+## Troubleshooting
+
+### Common Issues
+
+1. **API Key Not Set**: Ensure `INFERENCE_API_KEY` is correctly configured
+2. **Model Compatibility**: Verify the inference API supports your chosen model
+3. **Network Issues**: Check internet connectivity and API endpoint
+
+### Logging
+
+Enable detailed logging by setting the `RUST_LOG` environment variable:
+
+```bash
+RUST_LOG=debug cargo run
+```
 
 ## Contributing
 

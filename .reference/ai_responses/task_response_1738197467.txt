@@ -1,0 +1,2 @@
+data: {"id":"chatcmpl-988","object":"chat.completion.chunk","created":1738197473,"model":"deepseek-r1:32b","system_fingerprint":"fp_ollama","choices":[{"index":0,"delta":{"role":"assistant","content":"\u003cthink\u003e"},"finish_reason":null}]}
+

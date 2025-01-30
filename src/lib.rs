@@ -4,6 +4,8 @@ pub mod state;
 pub mod prompt;
 pub mod doc;
 pub mod inference;
+pub mod tools;
+pub mod project_generator;
 
 #[cfg(test)]
 mod inference_test;
