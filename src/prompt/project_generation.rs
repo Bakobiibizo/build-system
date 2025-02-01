@@ -10,6 +10,9 @@ pub struct ProjectGenerationConfig {
     /// The name of the project in kebab-case
     pub project_name: String,
 
+    /// Project description
+    pub description: String,
+
     /// Primary programming language
     pub language: String,
 
@@ -19,10 +22,16 @@ pub struct ProjectGenerationConfig {
     /// Type of project
     pub project_type: ProjectType,
 
+    /// List of technologies used
+    pub technologies: Vec<String>,
+
+    /// Project components and their responsibilities
+    pub components: HashMap<String, String>,
+
     /// Detailed directory structure
     pub directory_structure: HashMap<String, Vec<String>>,
 
-    /// Production dependencies
+    /// Production and development dependencies
     pub dependencies: DependencyConfig,
 
     /// Build and configuration details
@@ -83,15 +92,19 @@ impl ProjectGenerationConfig {
     /// Create a new project generation configuration
     pub fn new(
         project_name: String,
+        description: String,
         language: String,
         framework: String,
         project_type: ProjectType,
-    ) -> Self {
-        Self {
+    ) -> Result<Self, String> {
+        let config = Self {
             project_name,
+            description,
             language,
             framework,
             project_type,
+            technologies: Vec::new(),
+            components: HashMap::new(),
             directory_structure: HashMap::new(),
             dependencies: DependencyConfig {
                 production: HashMap::new(),
@@ -107,7 +120,49 @@ impl ProjectGenerationConfig {
             },
             initialization_commands: Vec::new(),
             recommendations: Vec::new(),
+        };
+
+        // Validate the configuration
+        config.validate()?;
+
+        Ok(config)
+    }
+
+    /// Validate the project generation configuration
+    pub fn validate(&self) -> Result<(), String> {
+        // Validate project name
+        if !is_valid_project_name(&self.project_name) {
+            return Err("Project name must be in kebab-case format".to_string());
         }
+
+        // Validate language
+        if self.language.trim().is_empty() {
+            return Err("Language must be specified".to_string());
+        }
+
+        // Validate project type
+        match self.project_type {
+            ProjectType::WebApplication => {
+                if self.framework.trim().is_empty() {
+                    return Err("Web applications must specify a framework".to_string());
+                }
+            }
+            _ => {}
+        }
+
+        // Validate components
+        for (component_name, responsibility) in &self.components {
+            if component_name.trim().is_empty() || responsibility.trim().is_empty() {
+                return Err("Component name and responsibility must not be empty".to_string());
+            }
+        }
+
+        // Validate directory structure
+        if self.directory_structure.is_empty() {
+            return Err("Directory structure must be defined".to_string());
+        }
+
+        Ok(())
     }
 
     /// Add a production dependency
@@ -121,12 +176,26 @@ impl ProjectGenerationConfig {
     }
 
     /// Set build scripts
-    pub fn set_build_scripts(&mut self, dev: &str, build: &str, test: &str) {
+    pub fn set_build_scripts(&mut self, dev: &str, build: &str, test: &str) -> Result<(), String> {
+        if dev.trim().is_empty() || build.trim().is_empty() || test.trim().is_empty() {
+            return Err("All build scripts must be specified".to_string());
+        }
+
         self.build_config.scripts = BuildScripts {
             dev: dev.to_string(),
             build: build.to_string(),
             test: test.to_string(),
         };
+
+        // Set appropriate build tool based on language
+        self.build_config.build_tool = match self.language.to_lowercase().as_str() {
+            "rust" => "cargo".to_string(),
+            "javascript" | "typescript" => "npm".to_string(),
+            "python" => "pip".to_string(),
+            _ => return Err(format!("Unsupported language: {}", self.language)),
+        };
+
+        Ok(())
     }
 
     /// Add initialization command
@@ -139,14 +208,63 @@ impl ProjectGenerationConfig {
         self.recommendations.push(recommendation.to_string());
     }
 
+    /// Add a component with its responsibility
+    pub fn add_component(&mut self, name: &str, responsibility: &str) -> Result<(), String> {
+        if name.trim().is_empty() {
+            return Err("Component name cannot be empty".to_string());
+        }
+        if responsibility.trim().is_empty() {
+            return Err("Component responsibility cannot be empty".to_string());
+        }
+
+        self.components.insert(name.to_string(), responsibility.to_string());
+        
+        // Automatically create directory structure for the component
+        let mut files = Vec::new();
+        match self.language.to_lowercase().as_str() {
+            "rust" => {
+                files.push("mod.rs".to_string());
+                files.push("tests.rs".to_string());
+            }
+            "javascript" | "typescript" => {
+                files.push("index.js".to_string());
+                files.push("__tests__/index.test.js".to_string());
+            }
+            "python" => {
+                files.push("__init__.py".to_string());
+                files.push("test_component.py".to_string());
+            }
+            _ => {}
+        }
+        
+        self.directory_structure.insert(name.to_string(), files);
+        Ok(())
+    }
+
+    /// Add a technology
+    pub fn add_technology(&mut self, technology: &str) -> Result<(), String> {
+        if technology.trim().is_empty() {
+            return Err("Technology cannot be empty".to_string());
+        }
+        self.technologies.push(technology.to_string());
+        Ok(())
+    }
+
     /// Generate a sample project configuration for testing
     pub fn sample_web_project() -> Self {
         let mut config = Self::new(
             "task-tracker".to_string(),
+            "A simple task tracking application".to_string(),
             "rust".to_string(),
             "actix-web".to_string(),
             ProjectType::WebApplication,
-        );
+        ).unwrap();
+
+        // Add components
+        config.add_component("api", "RESTful API endpoints for task management").unwrap();
+        config.add_component("auth", "Authentication and authorization service").unwrap();
+        config.add_component("database", "Database access and models").unwrap();
+        config.add_component("utils", "Common utilities and helper functions").unwrap();
 
         // Production dependencies
         config.add_production_dependency("actix-web", "4.3.1");
@@ -163,39 +281,52 @@ impl ProjectGenerationConfig {
         // Directory structure
         config.directory_structure = HashMap::from([
             ("src".to_string(), vec![
-                "main.rs".to_string(), 
-                "routes.rs".to_string(), 
-                "models.rs".to_string(), 
-                "db.rs".to_string()
+                "main.rs".to_string(),
+                "api/mod.rs".to_string(),
+                "auth/mod.rs".to_string(),
+                "database/mod.rs".to_string(),
+                "utils/mod.rs".to_string(),
             ]),
             ("tests".to_string(), vec![
-                "integration_tests.rs".to_string()
+                "api_tests.rs".to_string(),
+                "auth_tests.rs".to_string(),
+                "database_tests.rs".to_string(),
             ]),
             ("migrations".to_string(), vec![
-                "20240128_create_tasks_table.sql".to_string()
-            ])
+                "initial_schema.sql".to_string()
+            ]),
         ]);
 
-        // Build configuration
-        config.build_config.build_tool = "cargo".to_string();
+        // Set build scripts
         config.set_build_scripts(
-            "cargo watch -x run", 
-            "cargo build --release", 
-            "cargo test"
-        );
+            "cargo watch -x run",
+            "cargo build --release",
+            "cargo test",
+        ).unwrap();
 
-        // Initialization commands
+        // Add initialization commands
         config.add_initialization_command("cargo new task-tracker");
         config.add_initialization_command("cd task-tracker");
-        config.add_initialization_command("cargo add actix-web serde sqlx");
+        config.add_initialization_command("cargo add actix-web serde serde_json sqlx tokio");
+        config.add_initialization_command("cargo add --dev mockall cargo-watch clippy");
 
-        // Recommendations
+        // Add recommendations
+        config.add_recommendation("Use SQLx migrations for database schema management");
+        config.add_recommendation("Implement proper error handling for each component");
+        config.add_recommendation("Add comprehensive tests for each component");
         config.add_recommendation("Use environment variables for configuration");
-        config.add_recommendation("Implement proper error handling");
-        config.add_recommendation("Set up database migrations");
 
         config
     }
+}
+
+fn is_valid_project_name(name: &str) -> bool {
+    // Check if the name is in kebab-case format
+    let is_kebab_case = name.chars().all(|c| c.is_ascii_lowercase() || c == '-');
+    let no_consecutive_hyphens = !name.contains("--");
+    let valid_start_end = !name.starts_with('-') && !name.ends_with('-');
+    
+    is_kebab_case && no_consecutive_hyphens && valid_start_end
 }
 
 // Type aliases for backward compatibility
@@ -215,10 +346,11 @@ mod tests {
     fn test_project_generation_config_creation() {
         let mut config = ProjectGenerationConfig::new(
             "task-manager".to_string(),
+            "A simple task management application".to_string(),
             "rust".to_string(),
             "actix-web".to_string(),
             ProjectType::WebApplication,
-        );
+        ).unwrap();
 
         config.add_production_dependency("actix-web", "4.0.1");
         config.add_development_dependency("mockall", "0.11.0");
@@ -226,7 +358,7 @@ mod tests {
             "cargo run", 
             "cargo build --release", 
             "cargo test"
-        );
+        ).unwrap();
         config.add_initialization_command("cargo new task-manager");
         config.add_recommendation("Use environment variables for configuration");
 

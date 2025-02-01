@@ -10,14 +10,16 @@ mod tests {
         // Verify that Commands enum has a Generate variant
         let generate_command = Commands::Generate {
             name: "test_project".to_string(), 
-            description: "A test project".to_string()
+            description: Some("A test project".to_string()),
+            language: "rust".to_string()
         };
 
-        // Verify that the command has correct name and description
+        // Verify that the command has correct name, description, and language
         match generate_command {
-            Commands::Generate { name, description } => {
+            Commands::Generate { name, description, language } => {
                 assert_eq!(name, "test_project");
-                assert_eq!(description, "A test project");
+                assert_eq!(description, Some("A test project".to_string()));
+                assert_eq!(language, "rust".to_string());
             },
             _ => panic!("Expected Generate variant"),
         }

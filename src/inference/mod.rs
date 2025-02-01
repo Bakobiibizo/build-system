@@ -1,21 +1,15 @@
-use anyhow::{Context, Result};
 use async_openai::{
-    config::{OpenAIConfig},
-    Client,
-    types::{
-        CreateChatCompletionRequestArgs,
-        Role as ChatCompletionMessageRole,
-        ChatCompletionRequestUserMessage,
-        ChatCompletionRequestUserMessageContent,
-        ChatCompletionRequestMessage,
-    }
+    config::OpenAIConfig,
+    types::Role,
 };
-use regex::Regex;
-use std::env;
-use tracing::{info, error};
+use anyhow::{Context, Result, anyhow};
+use serde_json::json;
+use std::path::PathBuf;
 
 use crate::prompt::Prompt;
 use crate::state::types::TaskId;
+use crate::state::StateManager;
+use crate::build::BuildManager;
 
 #[derive(Clone)]
 pub struct OpenAIConfigWrapper(OpenAIConfig);
@@ -31,204 +25,284 @@ impl OpenAIConfigWrapper {
 }
 
 pub struct InferenceClient {
-    client: Client<OpenAIConfig>,
-    config: OpenAIConfigWrapper,
+    api_key: String,
+    base_url: String,
+    model: String,
 }
 
 impl InferenceClient {
     pub fn new() -> Result<Self> {
-        // Read OpenAI API key from environment variable
-        let api_key = env::var("INFERENCE_API_KEY")
-            .context("INFERENCE_API_KEY must be set")?;
-        let api_base = env::var("INFERENCE_API_BASE_URL")
-            .context("INFERENCE_API_BASE_URL must be set")?;
+        let api_key = std::env::var("OPENAI_API_KEY")
+            .map_err(|_| anyhow!("OPENAI_API_KEY environment variable not found"))?;
+        let base_url = std::env::var("OPENAI_API_BASE_URL")
+            .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
+        let model = std::env::var("OPENAI_MODEL")
+            .unwrap_or_else(|_| "gpt-4".to_string());
 
-        info!("Initializing InferenceClient with base URL: {}", api_base);
-
-        // Create a new configuration with explicit base URL
-        let config = OpenAIConfigWrapper::new(
-            OpenAIConfig::new()
-                .with_api_base(api_base.clone())
-                .with_api_key(api_key.clone())
-        );
-
-        let client = Client::with_config(config.inner().clone());
-
-        Ok(Self { 
-            client,
-            config: config.clone() 
-        })  
+        Ok(Self {
+            api_key,
+            base_url,
+            model,
+        })
     }
 
-    pub fn get_config(&self) -> &OpenAIConfigWrapper {
-        &self.config
+    pub async fn execute_task_prompt(&self, prompt: &Prompt, _task_id: &TaskId) -> Result<String> {
+        // Create OpenAI API request
+        let request_body = json!({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": Role::System,
+                    "content": &prompt.system_context
+                },
+                {
+                    "role": Role::User,
+                    "content": &prompt.user_request
+                }
+            ],
+            "temperature": 0.7
+        });
+
+        // Send request to OpenAI API
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request_body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        // Extract response content
+        response.get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("Failed to extract content from OpenAI response"))
     }
 
     pub async fn generate_project_config(&self, prompt: &str) -> Result<String> {
-        info!("Generating project config with prompt: {}", prompt);
-
-        // Modify the prompt to explicitly request JSON
-        let json_prompt = format!(
-            "{}\n\nRespond ONLY with a valid JSON configuration enclosed in ```json ... ``` code blocks. Do NOT include any explanatory text.",
-            prompt
-        );
-
-        // Prepare the chat completion request
-        let messages: Vec<ChatCompletionRequestMessage> = vec![
-            ChatCompletionRequestMessage::User(
-                ChatCompletionRequestUserMessage {
-                    role: ChatCompletionMessageRole::User,
-                    content: ChatCompletionRequestUserMessageContent::Text(
-                        json_prompt.to_string()
-                    ),
-                    name: None,
+        let request_body = json!({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": Role::System,
+                    "content": "You are a helpful assistant that generates project configurations."
+                },
+                {
+                    "role": Role::User,
+                    "content": prompt
                 }
-            )
-        ];
+            ],
+            "temperature": 0.7
+        });
 
-        // Read model-specific parameters from environment variables
-        let model = env::var("INFERENCE_API_MODEL").unwrap_or_else(|_| "gpt-4-turbo".to_string());
-        let temperature = env::var("INFERENCE_API_TEMPERATURE")
-            .map(|t| t.parse().unwrap_or(0.1))
-            .unwrap_or(0.1);
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request_body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
 
-        let request = CreateChatCompletionRequestArgs::default()
-            .model(model)
-            .messages(messages)
-            .max_tokens(4096u16)
-            .temperature(temperature)
-            .top_p(1.0)
-            .frequency_penalty(0.0)
-            .presence_penalty(0.0)
-            .build()
-            .map_err(|e| {
-                error!("Failed to build request: {:?}", e);
-                e
-            })?;
+        response.get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("Failed to extract content from OpenAI response"))
+    }
 
-        // Send the request and get the response
-        let response = self.client.chat().create(request)
-            .await
-            .map_err(|e| {
-                error!("Failed to generate project config: {:?}", e);
-                anyhow::anyhow!("API request failed: {}", e)
-            })?;
+    pub async fn generate_project(&self, prompt: &str) -> Result<PathBuf> {
+        // Generate project configuration
+        let config_json = self.generate_project_config(prompt).await?;
+        
+        // Initialize state and build managers
+        let state_manager = StateManager::new();
+        let build_manager = BuildManager::new(state_manager, PathBuf::from("build"));
+        
+        // Generate the project
+        let project_dir = build_manager.scaffold_project(&config_json)
+            .context("Failed to generate project")?;
 
-        // Extract the content from the first choice
-        let generated_content = response.choices.first()
-            .and_then(|choice| choice.message.content.clone())
-            .context("No response from API")?;
+        Ok(project_dir)
+    }
 
-        // Log the generated content for debugging
-        info!("Generated Project Config Content: {}", generated_content);
-
-        // JSON extraction strategies as trait objects
-        let json_extraction_strategies: &[&dyn Fn(&str) -> Option<String>] = &[
-            // Strategy 1: Extract full JSON from ```json ... ``` code blocks
-            &|content: &str| {
-                let code_block_regex = Regex::new(r"```json\s*(\{.*?\})\s*```").unwrap();
-                code_block_regex.captures(content)
-                    .and_then(|caps| caps.get(1))
-                    .map(|m| m.as_str().to_string())
-            },
-            // Strategy 2: Extract full multi-line JSON from ```json ... ``` code blocks
-            &|content: &str| {
-                let multi_line_json_regex = Regex::new(r"```json\s*(\{[\s\S]*?\})\s*```").unwrap();
-                multi_line_json_regex.captures(content)
-                    .and_then(|caps| caps.get(1))
-                    .map(|m| m.as_str().to_string())
-            },
-            // Strategy 3: Extract first complete JSON object
-            &|content: &str| {
-                let json_regex = Regex::new(r"\{[\s\S]*?\}").unwrap();
-                json_regex.find(content)
-                    .map(|m| m.as_str().to_string())
-            },
-            // Strategy 4: Trim and clean the entire content
-            &|content: &str| {
-                let trimmed = content.trim();
-                if trimmed.starts_with('{') && trimmed.ends_with('}') {
-                    Some(trimmed.to_string())
-                } else {
-                    None
+    pub async fn conditional_check(
+        &self,
+        _initial_prompt: &str,
+        condition: &str,
+        true_path: &str,
+        false_path: &str,
+    ) -> Result<String> {
+        let request_body = json!({
+            "model": self.model,
+            "messages": [
+                {
+                    "role": Role::System,
+                    "content": "You are a helpful assistant that evaluates conditions and provides responses."
+                },
+                {
+                    "role": Role::User,
+                    "content": format!(
+                        "Evaluate this condition: {}\nIf true, respond with: {}\nIf false, respond with: {}",
+                        condition, true_path, false_path
+                    )
                 }
-            }
-        ];
+            ],
+            "temperature": 0.7
+        });
 
-        // Try each JSON extraction strategy
-        for &strategy in json_extraction_strategies {
-            if let Some(json_str) = strategy(&generated_content) {
-                // Validate the extracted JSON
-                match serde_json::from_str::<serde_json::Value>(&json_str) {
-                    Ok(_) => return Ok(json_str),
-                    Err(e) => {
-                        error!("Invalid JSON from strategy: {}", e);
-                        continue;
+        let client = reqwest::Client::new();
+        let response = client
+            .post(format!("{}/chat/completions", self.base_url))
+            .header("Authorization", format!("Bearer {}", self.api_key))
+            .json(&request_body)
+            .send()
+            .await?
+            .json::<serde_json::Value>()
+            .await?;
+
+        response.get("choices")
+            .and_then(|choices| choices.get(0))
+            .and_then(|choice| choice.get("message"))
+            .and_then(|message| message.get("content"))
+            .and_then(|content| content.as_str())
+            .map(|s| s.to_string())
+            .ok_or_else(|| anyhow!("Failed to extract content from OpenAI response"))
+    }
+
+    pub async fn iterative_prompt(
+        &self,
+        initial_prompt: &str,
+        max_iterations: usize,
+        refinement_prompt: &str,
+    ) -> Result<String> {
+        let mut current_response = initial_prompt.to_string();
+
+        for _ in 0..max_iterations {
+            let request_body = json!({
+                "model": self.model,
+                "messages": [
+                    {
+                        "role": Role::System,
+                        "content": "You are a helpful assistant that refines responses."
+                    },
+                    {
+                        "role": Role::User,
+                        "content": format!("{}\nCurrent response: {}", refinement_prompt, current_response)
                     }
-                }
+                ],
+                "temperature": 0.7
+            });
+
+            let client = reqwest::Client::new();
+            let response = client
+                .post(format!("{}/chat/completions", self.base_url))
+                .header("Authorization", format!("Bearer {}", self.api_key))
+                .json(&request_body)
+                .send()
+                .await?
+                .json::<serde_json::Value>()
+                .await?;
+
+            let refined_response = response.get("choices")
+                .and_then(|choices| choices.get(0))
+                .and_then(|choice| choice.get("message"))
+                .and_then(|message| message.get("content"))
+                .and_then(|content| content.as_str())
+                .map(|s| s.to_string())
+                .ok_or_else(|| anyhow!("Failed to extract content from OpenAI response"))?;
+
+            if refined_response == current_response {
+                break;
+            }
+
+            current_response = refined_response;
+        }
+
+        Ok(current_response)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_generate_project() -> Result<()> {
+        // Skip this test if no API key is set
+        match std::env::var("OPENAI_API_KEY") {
+            Ok(_) => (),
+            Err(_) => {
+                println!("Skipping test_generate_project: No OPENAI_API_KEY set");
+                return Ok(());
             }
         }
 
-        // If no valid JSON is found, return an error
-        Err(anyhow::anyhow!(
-            "Failed to extract valid JSON from the generated content. Content was: {}",
-            generated_content
-        ))
+        let client = InferenceClient::new()?;
+        let prompt = "Create a simple Rust web server project";
+        let project_dir = client.generate_project(prompt).await?;
+
+        assert!(project_dir.exists());
+        assert!(project_dir.join("Cargo.toml").exists());
+        assert!(project_dir.join("src").exists());
+        assert!(project_dir.join("src/main.rs").exists());
+
+        Ok(())
     }
 
-    pub async fn execute_task_prompt(&self, prompt: &Prompt, task_id: &TaskId) -> Result<String> {
-        info!("Executing task prompt for task ID: {}", task_id);
+    #[tokio::test]
+    async fn test_iterative_prompt() -> Result<()> {
+        let client = InferenceClient::new()?;
+        
+        let initial_prompt = "Create a project configuration for a small web application";
+        let refinement_instruction = "Refine the project configuration to be more scalable and include more detailed dependency management";
+        
+        let final_config = client.iterative_prompt(
+            initial_prompt, 
+            2,  // Number of iterations
+            refinement_instruction
+        ).await?;
 
-        // Prepare the chat completion request
-        let messages: Vec<ChatCompletionRequestMessage> = vec![
-            ChatCompletionRequestMessage::User(
-                ChatCompletionRequestUserMessage {
-                    role: ChatCompletionMessageRole::User,
-                    content: ChatCompletionRequestUserMessageContent::Text(
-                        format!("Task ID: {}\nSystem Context: {}\nUser Request: {}", 
-                            task_id, 
-                            prompt.system_context, 
-                            prompt.user_request
-                        )
-                    ),
-                    name: None,
-                }
-            )
-        ];
+        // Validate that the final config is a valid JSON
+        let config_json: serde_json::Value = serde_json::from_str(&final_config)
+            .expect("Final config should be a valid JSON");
+        
+        assert!(config_json.is_object(), "Final config should be a JSON object");
+        
+        Ok(())
+    }
 
-        // Read model-specific parameters from environment variables
-        let model = env::var("INFERENCE_API_MODEL").unwrap_or_else(|_| "gpt-4-turbo".to_string());
-        let temperature = env::var("INFERENCE_API_TEMPERATURE")
-            .map(|t| t.parse().unwrap_or(0.1))
-            .unwrap_or(0.1);
+    #[tokio::test]
+    async fn test_conditional_check() -> Result<()> {
+        let client = InferenceClient::new()?;
+        
+        let initial_prompt = "Create a project configuration for a data science project";
+        let condition_prompt = "Check if the project configuration includes machine learning libraries and data processing tools";
+        let option_a_prompt = "Enhance the project configuration with advanced machine learning and data science tools";
+        let option_b_prompt = "Add basic data processing and visualization libraries";
+        
+        let final_config = client.conditional_check(
+            initial_prompt, 
+            condition_prompt, 
+            option_a_prompt, 
+            option_b_prompt
+        ).await?;
 
-        let request = CreateChatCompletionRequestArgs::default()
-            .model(model)
-            .messages(messages)
-            .max_tokens(4096u16)
-            .temperature(temperature)
-            .top_p(1.0)
-            .frequency_penalty(0.0)
-            .presence_penalty(0.0)
-            .build()
-            .map_err(|e| {
-                error!("Failed to build request: {:?}", e);
-                e
-            })?;
-
-        // Send the request to OpenAI
-        let response = self.client.chat().create(request).await
-            .map_err(|e| {
-                error!("Failed to create chat completion: {:?}", e);
-                e
-            })?;
-
-        // Extract and return the generated content
-        let content = response.choices.first()
-            .and_then(|choice| choice.message.content.clone())
-            .context("No content in response")?;
-
-        Ok(content)
+        // Validate that the final config is a valid JSON
+        let config_json: serde_json::Value = serde_json::from_str(&final_config)
+            .expect("Final config should be a valid JSON");
+        
+        assert!(config_json.is_object(), "Final config should be a JSON object");
+        
+        Ok(())
     }
 }
 

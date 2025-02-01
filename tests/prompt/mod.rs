@@ -30,40 +30,76 @@ mod tests {
         Ok(())
     }
 
-    #[tokio::test]
-    async fn test_project_config_creation() -> Result<()> {
-        let mut dependencies = HashMap::new();
-        dependencies.insert("production_dep1".to_string(), "version1".to_string());
-        dependencies.insert("development_dep1".to_string(), "version2".to_string());
-
-        let dependency_config = DependencyConfig {
-            production: dependencies.clone(),
-            development: HashMap::new(),
-        };
-
+    #[test]
+    fn test_project_config_creation() -> Result<()> {
         let project_config = ProjectConfig {
-            project_name: "test_project".to_string(),
-            project_type: Some(ProjectType::WebApplication),
+            name: "test_project".to_string(),
             description: Some("A test project".to_string()),
-            dependencies: Some(dependency_config),
-            ..Default::default()
+            technologies: vec!["rust".to_string()],
+            project_type: ProjectType::Application,
+            language: "rust".to_string(),
+            framework: Some("actix-web".to_string()),
+            dependencies: Some(DependencyConfig {
+                required: vec!["serde".to_string()],
+                optional: vec!["tokio".to_string()],
+                development: vec!["mockall".to_string()],
+            }),
+            build_config: None,
+            directory_structure: None,
+            initialization_commands: None,
+            recommendations: None,
         };
 
-        assert_eq!(project_config.project_name, "test_project");
-        assert!(project_config.project_type.is_some());
+        assert_eq!(project_config.name, "test_project");
+        assert_eq!(project_config.description, Some("A test project".to_string()));
+        assert_eq!(project_config.technologies, vec!["rust".to_string()]);
+        assert!(matches!(project_config.project_type, ProjectType::Application));
+
+        Ok(())
+    }
+
+    #[test]
+    fn test_project_config_minimal() -> Result<()> {
+        let project_config = ProjectConfig {
+            name: "test_task".to_string(),
+            description: None,
+            technologies: vec![],
+            project_type: ProjectType::Library,
+            language: "python".to_string(),
+            framework: None,
+            dependencies: None,
+            build_config: None,
+            directory_structure: None,
+            initialization_commands: None,
+            recommendations: None,
+        };
+
+        assert_eq!(project_config.name, "test_task");
+        assert_eq!(project_config.description, None);
+        assert!(project_config.technologies.is_empty());
+        assert!(matches!(project_config.project_type, ProjectType::Library));
+
         Ok(())
     }
 
     #[tokio::test]
     async fn test_project_config_technologies() -> Result<()> {
         let project_config = ProjectConfig {
-            project_name: "test_task".to_string(),
+            name: "test_task".to_string(),
+            description: None,
             technologies: vec!["Rust".to_string(), "Tokio".to_string()],
-            ..Default::default()
+            project_type: ProjectType::Library,
+            language: "rust".to_string(),
+            framework: None,
+            dependencies: None,
+            build_config: None,
+            directory_structure: None,
+            initialization_commands: None,
+            recommendations: None,
         };
-        
-        assert_eq!(project_config.project_name, "test_task");
-        assert!(project_config.technologies.is_sorted());
+
+        assert_eq!(project_config.name, "test_task");
+        assert!(project_config.technologies.contains(&"Rust".to_string()));
         Ok(())
     }
 }

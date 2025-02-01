@@ -1,0 +1,6 @@
+{
+    "name": "Modern Web Application",
+    "description": "Create a scalable web application with microservices architecture",
+    "technologies": ["React", "Node.js", "Docker", "Kubernetes"],
+    "complexity": 8
+}

@@ -19,15 +19,16 @@ chrono = { version = "0.4", features = ["serde"] }
 clap = { version = "4.3", features = ["derive"] }
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
-tokio = { version = "1.28", features = ["full"] }
+tokio = { version = "1.28", features = ["full", "test-util"] }
 regex = "1.10"
 thiserror = "1.0"
-uuid = { version = "1.3", features = ["v4", "serde"] }
+uuid = { version = "1.3.3", features = ["v4", "serde"] }
+dirs = "5.0.1"
 
 # AI and ML dependencies
 async-openai = "0.20"
 tiktoken-rs = "0.5"
-reqwest = { version = "0.11", features = ["json", "multipart", "rustls-tls"] }
+reqwest = { version = "0.11", features = ["json", "multipart", "rustls-tls"], default-features = false }
 url = "2.4"
 
 # Logging and tracing
@@ -41,26 +42,26 @@ handlebars = "4.5"
 # Serialization and parsing
 toml = "0.8"
 yaml-rust = "0.4"
+jsonschema = { version = "0.17.1", default-features = false }
 
 # Filesystem and path handling
 walkdir = "2.4"
 
-# Cryptography and security
-rust-argon2 = "2.0"
-base64 = "0.21"
+# Storage
+sled = "0.34"
 
-# Error handling
-color-eyre = "0.6"
+# Testing
+mockall = "0.11.3"
 
-# Environment variables
+# Error handling and utilities
 dotenv = "0.15"
 
 [dev-dependencies]
-mockall = "0.11"
 tempfile = "3.3"
-rstest = "0.18"
+predicates = "3.0"
 
 [features]
-default = []
-ai-features = []
+default = ["rustls-tls"]
+rustls-tls = ["reqwest/rustls-tls"]
 web-features = []
+ai-features = []

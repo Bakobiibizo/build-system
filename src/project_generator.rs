@@ -1,142 +1,244 @@
-use std::fs::{self, File, create_dir_all};
-use std::io::{Write, Result as IoResult};
-use std::path::{Path, PathBuf};
-use serde::{Deserialize, Serialize};
-use serde_json;
+use anyhow::Result;
+use std::fs::{self, File};
+use std::io::Write;
+use std::path::{PathBuf, Path};
 use std::collections::HashMap;
-use crate::project_generator::fs::DirBuilder;
 
+use crate::prompt::ProjectConfig;
 use crate::tools::ExecutableTool;
+
+use serde::{Deserialize, Serialize};
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ProjectDesign {
-    pub project_name: String,
-    pub system_architecture: Option<String>,
-    pub design_principles: Option<Vec<String>>,
-    #[serde(default)]
-    pub component_responsibilities: Option<Vec<String>>,
-    pub error_handling: Option<ErrorHandling>,
-    pub performance_scalability: Option<PerformanceScalability>,
-    pub logging_monitoring: Option<LoggingMonitoring>,
-    pub configuration_management: Option<ConfigurationManagement>,
-    pub recommendations: Option<Vec<String>>,
+    pub name: String,
+    pub description: String,
+    pub project_type: String,
+    pub language: String,
+    pub framework: String,
+    pub technologies: Vec<String>,
+    pub dependencies: DependencyConfig,
+    pub build_config: BuildConfig,
+    pub directory_structure: HashMap<String, Vec<String>>,
+    pub initialization_commands: Vec<String>,
+    pub recommendations: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ErrorHandling {
-    pub timeout: Option<u32>,
-    pub retry: Option<u32>,
-    pub error_types: Option<Vec<String>>,
+pub struct DependencyConfig {
+    pub production: HashMap<String, String>,
+    pub development: HashMap<String, String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct PerformanceScalability {
-    pub caching: Option<String>,
-    pub connection_pooling: Option<String>,
-    pub load_balancing: Option<String>,
+pub struct BuildConfig {
+    pub build_tool: String,
+    pub scripts: BuildScripts,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct LoggingMonitoring {
-    pub log_levels: Option<Vec<String>>,
-    pub log_storage: Option<String>,
-    pub monitoring_tools: Option<Vec<String>>,
-}
-
-#[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct ConfigurationManagement {
-    pub config_file_format: Option<String>,
-    pub environment_variables: Option<Vec<String>>,
-    pub config_loading: Option<String>,
+pub struct BuildScripts {
+    pub dev: String,
+    pub build: String,
+    pub test: String,
 }
 
 #[derive(Debug, thiserror::Error)]
 pub enum ProjectGenerationError {
     #[error("IO error during project generation")]
     IoError(#[from] std::io::Error),
+    #[error("Invalid project configuration: {0}")]
+    ConfigurationError(String),
+    #[error("Component generation error: {0}")]
+    ComponentError(String),
+    #[error("Build configuration error: {0}")]
+    BuildError(String),
 }
 
-pub struct ProjectGenerationWorkflow {
-    config: crate::prompt::ProjectConfig,
-}
-
-impl ProjectGenerationWorkflow {
-    pub fn new(config: &crate::prompt::ProjectConfig) -> Self {
-        Self {
-            config: config.clone(),
+impl ProjectDesign {
+    pub fn validate(&self) -> Result<(), ProjectGenerationError> {
+        // Validate project name
+        if self.name.trim().is_empty() {
+            return Err(ProjectGenerationError::ConfigurationError(
+                "Project name cannot be empty".to_string(),
+            ));
         }
+
+        // Validate required fields
+        if self.language.trim().is_empty() {
+            return Err(ProjectGenerationError::ConfigurationError(
+                "Language must be specified".to_string(),
+            ));
+        }
+
+        // Validate directory structure
+        if self.directory_structure.is_empty() {
+            return Err(ProjectGenerationError::ConfigurationError(
+                "Directory structure must be defined".to_string(),
+            ));
+        }
+
+        Ok(())
     }
 
     pub fn generate_project_structure(&self) -> Result<PathBuf, ProjectGenerationError> {
-        // Create project root directory
-        let project_root = PathBuf::from("build").join(&self.config.project_name);
-        fs::create_dir_all(&project_root)?;
+        // Validate configuration first
+        self.validate()?;
 
-        // Generate basic project structure
-        self.create_project_directories(&project_root)?;
-        self.generate_main_script(&project_root)?;
-        self.generate_readme(&project_root)?;
+        let project_root = PathBuf::from("build").join(&self.name);
         
+        // Clean up existing directory if it exists
+        if project_root.exists() {
+            fs::remove_dir_all(&project_root).map_err(ProjectGenerationError::IoError)?;
+        }
+
+        // Create project root directory
+        fs::create_dir_all(&project_root).map_err(ProjectGenerationError::IoError)?;
+
+        // Generate core project files
+        self.generate_readme(&project_root)?;
+        self.generate_build_config(&project_root)?;
+        self.generate_components(&project_root)?;
+
         Ok(project_root)
     }
 
-    pub fn create_project_directories(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        // Create standard project directories
-        let dirs = vec![
-            "src",
-            "tests",
-            "docs",
-            "config",
-            "scripts",
-        ];
+    fn generate_build_config(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        match self.language.to_lowercase().as_str() {
+            "rust" => self.generate_cargo_toml(project_root),
+            "javascript" | "typescript" => self.generate_package_json(project_root),
+            "python" => self.generate_requirements_txt(project_root),
+            _ => Err(ProjectGenerationError::BuildError(format!(
+                "Unsupported language: {}",
+                self.language
+            ))),
+        }?;
 
-        for dir in dirs {
-            fs::create_dir_all(project_root.join(dir))?;
+        Ok(())
+    }
+
+    fn generate_components(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        for (component_name, files) in &self.directory_structure {
+            let component_dir = project_root.join(component_name);
+            fs::create_dir_all(&component_dir).map_err(ProjectGenerationError::IoError)?;
+
+            for file in files {
+                let file_path = component_dir.join(file);
+                File::create(&file_path).map_err(ProjectGenerationError::IoError)?;
+            }
         }
 
         Ok(())
     }
 
-    pub fn generate_main_script(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let main_script_path = project_root.join("src").join("main.py");
-        let mut main_script = File::create(main_script_path)?;
-        
-        writeln!(main_script, "# Main script for {}", self.config.project_name)?;
-        writeln!(main_script, "def main():")?;
-        writeln!(main_script, "    print('Hello, {}!')", self.config.project_name)?;
-        writeln!(main_script, "")?;
-        writeln!(main_script, "if __name__ == '__main__':")?;
-        writeln!(main_script, "    main()")?;
+    fn generate_package_json(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        let package_json = serde_json::json!({
+            "name": self.name,
+            "version": "0.1.0",
+            "description": self.description,
+            "scripts": {
+                "dev": self.build_config.scripts.dev,
+                "build": self.build_config.scripts.build,
+                "test": self.build_config.scripts.test
+            },
+            "dependencies": self.dependencies.production,
+            "devDependencies": self.dependencies.development
+        });
+
+        let file_path = project_root.join("package.json");
+        let mut file = File::create(file_path).map_err(ProjectGenerationError::IoError)?;
+        file.write_all(serde_json::to_string_pretty(&package_json).unwrap().as_bytes())
+            .map_err(ProjectGenerationError::IoError)?;
 
         Ok(())
     }
 
-    pub fn generate_readme(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let readme_path = project_root.join("README.md");
-        let mut readme = File::create(readme_path)?;
+    fn generate_requirements_txt(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        let mut requirements = String::new();
         
-        writeln!(readme, "# {}", self.config.project_name)?;
-        writeln!(readme, "")?;
+        for (dep, version) in &self.dependencies.production {
+            requirements.push_str(&format!("{}=={}\n", dep, version));
+        }
+
+        let file_path = project_root.join("requirements.txt");
+        let mut file = File::create(file_path).map_err(ProjectGenerationError::IoError)?;
+        file.write_all(requirements.as_bytes())
+            .map_err(ProjectGenerationError::IoError)?;
+
+        Ok(())
+    }
+
+    fn generate_readme(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        let mut file = File::create(project_root.join("README.md")).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "# {}", self.name).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "{}", self.description).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "## Technologies").map_err(ProjectGenerationError::IoError)?;
+        for tech in &self.technologies {
+            writeln!(file, "- {}", tech).map_err(ProjectGenerationError::IoError)?;
+        }
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "## Getting Started").map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "```bash").map_err(ProjectGenerationError::IoError)?;
+        for cmd in &self.initialization_commands {
+            writeln!(file, "{}", cmd).map_err(ProjectGenerationError::IoError)?;
+        }
+        writeln!(file, "```").map_err(ProjectGenerationError::IoError)?;
+
+        Ok(())
+    }
+
+    fn generate_cargo_toml(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        let mut file = File::create(project_root.join("Cargo.toml")).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "[package]").map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "name = \"{}\"", self.name).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "version = \"0.1.0\"").map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "edition = \"2021\"").map_err(ProjectGenerationError::IoError)?;
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
         
-        // Handle optional description
-        if let Some(desc) = &self.config.description {
-            writeln!(readme, "{}", desc)?;
-        } else {
-            writeln!(readme, "A project description will be added soon.")?;
+        writeln!(file, "[dependencies]").map_err(ProjectGenerationError::IoError)?;
+        for (name, version) in &self.dependencies.production {
+            writeln!(file, "{} = \"{}\"", name, version).map_err(ProjectGenerationError::IoError)?;
         }
         
-        writeln!(readme, "")?;
-        writeln!(readme, "## Getting Started")?;
-        writeln!(readme, "")?;
-        writeln!(readme, "### Prerequisites")?;
-        writeln!(readme, "")?;
-        writeln!(readme, "### Installation")?;
+        if !self.dependencies.development.is_empty() {
+            writeln!(file).map_err(ProjectGenerationError::IoError)?;
+            writeln!(file, "[dev-dependencies]").map_err(ProjectGenerationError::IoError)?;
+            for (name, version) in &self.dependencies.development {
+                writeln!(file, "{} = \"{}\"", name, version).map_err(ProjectGenerationError::IoError)?;
+            }
+        }
 
         Ok(())
     }
 
-    pub fn execute(&self, _arguments: &str) -> Result<String, String> {
-        Ok("Project generation workflow executed".to_string())
+    fn generate_architecture_md(&self, project_root: &Path) -> Result<(), ProjectGenerationError> {
+        let mut file = File::create(project_root.join("docs").join("ARCHITECTURE.md")).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "# {} Architecture", self.name).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "## Overview").map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "{}", self.description).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "## Technology Stack").map_err(ProjectGenerationError::IoError)?;
+        for tech in &self.technologies {
+            writeln!(file, "- {}", tech).map_err(ProjectGenerationError::IoError)?;
+        }
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "## Project Structure").map_err(ProjectGenerationError::IoError)?;
+        for (dir, files) in &self.directory_structure {
+            writeln!(file, "### {}/", dir).map_err(ProjectGenerationError::IoError)?;
+            for filename in files {
+                writeln!(file, "- {}", filename).map_err(ProjectGenerationError::IoError)?;
+            }
+        }
+        writeln!(file).map_err(ProjectGenerationError::IoError)?;
+        writeln!(file, "## Recommendations").map_err(ProjectGenerationError::IoError)?;
+        for rec in &self.recommendations {
+            writeln!(file, "- {}", rec).map_err(ProjectGenerationError::IoError)?;
+        }
+
+        Ok(())
     }
 }
 
@@ -155,246 +257,65 @@ impl ExecutableTool for ProjectDesign {
     }
 }
 
-impl ProjectDesign {
-    pub fn generate_project_structure(&self) -> Result<PathBuf, std::io::Error> {
-        // Define build directory
-        let build_dir = Path::new("build");
-        fs::create_dir_all(&build_dir)?;
+pub struct ProjectGenerator {
+    config: ProjectConfig,
+}
 
-        // Generate unique project directory in build folder
-        let project_root = build_dir.join(&self.project_name);
-        
-        // Ensure project directory is clean
-        if project_root.exists() {
-            fs::remove_dir_all(&project_root)?;
-        }
-        
-        // Create project directories
-        DirBuilder::new()
-            .recursive(true)
-            .create(&project_root)?;
-
-        // Create standard directories
-        let dirs = vec![
-            "src",
-            "tests",
-            "docs",
-            "examples",
-            ".github/workflows"
-        ];
-        for dir in dirs {
-            fs::create_dir_all(project_root.join(dir))?;
-        }
-
-        // Generate key files
-        self.generate_readme(&project_root)?;
-        self.generate_requirements(&project_root)?;
-        self.generate_main_script(&project_root)?;
-        self.generate_config_file(&project_root)?;
-        self.generate_error_handler(&project_root)?;
-        self.generate_logging_config(&project_root)?;
-
-        // Generate project metadata
-        self.generate_project_metadata(&project_root)?;
-
-        Ok(project_root)
+impl ProjectGenerator {
+    pub fn new(config: ProjectConfig) -> Self {
+        Self { config }
     }
 
-    pub fn generate_readme(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let mut readme = File::create(project_root.join("README.md"))?;
-        writeln!(readme, "# {}", self.project_name)?;
-        
-        if let Some(arch) = &self.system_architecture {
-            writeln!(readme, "\n## System Architecture\n{}", arch)?;
-        }
+    pub fn generate(&self) -> Result<(), std::io::Error> {
+        // Create project directory
+        let project_root = PathBuf::from("build").join(&self.config.name);
+        fs::create_dir_all(&project_root)?;
 
-        if let Some(principles) = &self.design_principles {
-            writeln!(readme, "\n## Design Principles")?;
-            for principle in principles {
-                writeln!(readme, "- {}", principle)?;
+        // Create main script file based on language
+        match self.config.language.to_lowercase().as_str() {
+            "python" => {
+                let main_script_path = project_root.join("main.py");
+                let mut main_script = File::create(main_script_path)?;
+                writeln!(main_script, "# Main script for {}", self.config.name)?;
+                writeln!(main_script, "def main():")?;
+                writeln!(main_script, "    print('Hello, {}!')", self.config.name)?;
+                writeln!(main_script, "\nif __name__ == '__main__':")?;
+                writeln!(main_script, "    main()")?;
+
+                // Create requirements.txt
+                let requirements_path = project_root.join("requirements.txt");
+                File::create(requirements_path)?;
+            }
+            "rust" => {
+                let main_script_path = project_root.join("src/main.rs");
+                fs::create_dir_all(project_root.join("src"))?;
+                let mut main_script = File::create(main_script_path)?;
+                writeln!(main_script, "fn main() {{")?;
+                writeln!(main_script, "    println!(\"Hello, {}!\");", self.config.name)?;
+                writeln!(main_script, "}}")?;
+
+                // Create Cargo.toml
+                let cargo_path = project_root.join("Cargo.toml");
+                let mut cargo = File::create(cargo_path)?;
+                writeln!(cargo, "[package]")?;
+                writeln!(cargo, "name = \"{}\"", self.config.name)?;
+                writeln!(cargo, "version = \"0.1.0\"")?;
+                writeln!(cargo, "edition = \"2021\"")?;
+            }
+            _ => {
+                let main_script_path = project_root.join("main.txt");
+                let mut main_script = File::create(main_script_path)?;
+                writeln!(main_script, "Main script for {}", self.config.name)?;
             }
         }
 
-        Ok(())
-    }
-
-    pub fn generate_requirements(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let mut req_file = File::create(project_root.join("requirements.txt"))?;
-        writeln!(req_file, "openai>=1.0.0")?;
-        writeln!(req_file, "python-dotenv>=0.21.0")?;
-        
-        // Add logging and monitoring dependencies
-        if let Some(logging) = &self.logging_monitoring {
-            if logging.monitoring_tools.is_some() {
-                writeln!(req_file, "prometheus-client>=0.16.0")?;
-            }
+        // Create README.md
+        let readme_path = project_root.join("README.md");
+        let mut readme = File::create(readme_path)?;
+        writeln!(readme, "# {}", self.config.name)?;
+        if let Some(desc) = &self.config.description {
+            writeln!(readme, "\n{}", desc)?;
         }
-
-        Ok(())
-    }
-
-    pub fn generate_main_script(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let mut main_script = File::create(project_root.join("src/main.py"))?;
-        writeln!(main_script, r#"
-import openai
-import os
-from dotenv import load_dotenv
-
-# Load environment variables
-load_dotenv()
-
-class OpenAIClient:
-    def __init__(self):
-        self.api_key = os.getenv('OPENAI_API_KEY')
-        if not self.api_key:
-            raise ValueError("No OpenAI API key found. Please set OPENAI_API_KEY.")
-        
-        openai.api_key = self.api_key
-
-    def stream_completion(self, prompt, model="gpt-3.5-turbo"):
-        try:
-            response = openai.ChatCompletion.create(
-                model=model,
-                messages=[{{"role": "user", "content": prompt}}],
-                stream=True
-            )
-            
-            for chunk in response:
-                if chunk.choices[0].delta.get('content'):
-                    yield chunk.choices[0].delta.content
-        except Exception as e:
-            print("Error in stream completion: {{e}}")
-            yield None
-
-def main():
-    client = OpenAIClient()
-    prompt = "Explain quantum computing in simple terms"
-    
-    print("Streaming response:")
-    for chunk in client.stream_completion(prompt):
-        if chunk:
-            print(chunk, end='', flush=True)
-
-if __name__ == "__main__":
-    main()
-"#)?;
-
-        Ok(())
-    }
-
-    pub fn generate_config_file(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let mut config_file = File::create(project_root.join(".env.example"))?;
-        writeln!(config_file, "OPENAI_API_KEY=your_openai_api_key_here")?;
-        
-        if let Some(config_mgmt) = &self.configuration_management {
-            if let Some(env_vars) = &config_mgmt.environment_variables {
-                for var in env_vars {
-                    writeln!(config_file, "{}=", var)?;
-                }
-            }
-        }
-
-        Ok(())
-    }
-
-    pub fn generate_error_handler(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let mut error_handler = File::create(project_root.join("src/error_handler.py"))?;
-        writeln!(error_handler, r#"
-import time
-import logging
-
-class RetryableError(Exception):
-    """Custom exception for errors that can be retried."""
-    pass
-
-def retry_with_backoff(
-    func, 
-    max_retries=3, 
-    base_delay=1, 
-    max_delay=60
-):
-    """
-    Retry a function with exponential backoff.
-    
-    :param func: Function to retry
-    :param max_retries: Maximum number of retry attempts
-    :param base_delay: Initial delay between retries
-    :param max_delay: Maximum delay between retries
-    :return: Result of the function
-    """
-    retries = 0
-    delay = base_delay
-
-    while retries < max_retries:
-        try:
-            return func()
-        except RetryableError as error:
-            logging.warning("Attempt {{retries + 1}} failed: {{error}}")
-            time.sleep(delay)
-            delay = min(delay * 2, max_delay)
-            retries += 1
-
-    raise Exception("Function failed after {{max_retries}} attempts")
-"#)?;
-
-        Ok(())
-    }
-
-    pub fn generate_logging_config(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let mut logging_config = File::create(project_root.join("src/logging_config.py"))?;
-        writeln!(logging_config, r#"
-import logging
-import sys
-
-def setup_logging(log_level='INFO', log_file=None):
-    """
-    Configure logging for the application.
-    
-    :param log_level: Logging level (DEBUG, INFO, WARNING, ERROR, CRITICAL)
-    :param log_file: Optional file to log to. If None, logs to console.
-    """
-    # Convert log level string to logging constant
-    log_level = getattr(logging, log_level.upper())
-
-    # Configure basic logging
-    logging_config = {{
-        "level": log_level,
-        "format": "%(asctime)s - %(name)s - %(levelname)s - %(message)s",
-        "handlers": []
-    }}
-
-    # Console handler
-    console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setLevel(log_level)
-    logging_config["handlers"].append(console_handler)
-
-    # File handler if log_file is provided
-    if log_file:
-        file_handler = logging.FileHandler(log_file)
-        file_handler.setLevel(log_level)
-        logging_config["handlers"].append(file_handler)
-
-    logging.basicConfig(**logging_config)
-
-    return logging.getLogger(__name__)
-"#)?;
-
-        Ok(())
-    }
-
-    pub fn generate_project_metadata(&self, project_root: &Path) -> Result<(), std::io::Error> {
-        let metadata_path = project_root.join(".project_metadata.json");
-        let metadata = serde_json::json!({
-            "project_name": self.project_name,
-            "system_architecture": self.system_architecture,
-            "design_principles": self.design_principles,
-            "generated_at": chrono::Utc::now().to_rfc3339()
-        });
-
-        fs::write(
-            metadata_path, 
-            serde_json::to_string_pretty(&metadata)?
-        )?;
 
         Ok(())
     }

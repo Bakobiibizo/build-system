@@ -1,0 +1,17 @@
+{
+    "type": "object",
+    "properties": {
+        "name": { "type": "string" },
+        "description": { "type": "string" },
+        "technologies": {
+            "type": "array",
+            "items": { "type": "string" }
+        },
+        "complexity": { 
+            "type": "integer", 
+            "minimum": 0, 
+            "maximum": 10 
+        }
+    },
+    "required": ["name", "description", "technologies", "complexity"]
+}

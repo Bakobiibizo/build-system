@@ -3,17 +3,13 @@ use clap::Parser;
 use dotenv::dotenv;
 use tracing_subscriber::EnvFilter;
 
-mod cli;
-mod prompt;
-mod doc;
-mod state;
-mod build;
-mod project_generator;
-mod inference;
-mod tools;
-
 use build_system::cli::Cli;
-use build_system::cli::run_cli;
+mod prompt;
+mod inference;
+mod build;
+mod state;
+mod project_generator;
+mod tools;
 
 #[tokio::main]
 async fn main() -> Result<()> {
@@ -29,5 +25,5 @@ async fn main() -> Result<()> {
     let cli = Cli::parse();
 
     // Run the CLI
-    run_cli(cli).await
+    Cli::run(cli).await
 }

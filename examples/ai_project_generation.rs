@@ -1,6 +1,6 @@
 use anyhow::Result;
 use build_system::inference::InferenceClient;
-use build_system::prompt::{PromptGenerator, ProjectConfig};
+use build_system::prompt::{ProjectConfig, ProjectType};
 use build_system::state::types::TaskId;
 
 #[tokio::main]
@@ -24,12 +24,22 @@ async fn main() -> Result<()> {
         println!("Prompt: {}", prompt_text);
 
         // Create a sample project configuration
-        let project_config = ProjectConfig::new("MyProject")
-            .with_description(prompt_text)
-            .with_project_type(build_system::prompt::ProjectType::WebApplication);
+        let project_config = ProjectConfig {
+            name: "MyProject".to_string(),
+            description: Some(prompt_text.to_string()),
+            technologies: vec!["rust".to_string(), "actix-web".to_string()],
+            project_type: ProjectType::Application,
+            language: "rust".to_string(),
+            framework: Some("actix-web".to_string()),
+            dependencies: None,
+            build_config: None,
+            directory_structure: None,
+            initialization_commands: None,
+            recommendations: None,
+        };
 
         // Generate a prompt for project generation
-        let prompt = PromptGenerator::generate_project_prompt(&project_config);
+        let prompt = build_system::prompt::generator::PromptGenerator::generate_project_prompt(&project_config);
 
         // Execute AI-powered project generation
         match inference_client.execute_task_prompt(&prompt, &TaskId::new("project_generation")).await {
