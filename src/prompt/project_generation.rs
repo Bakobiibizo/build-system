@@ -1,9 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 
-// Re-export ProjectType from prompt/mod.rs
-pub use crate::prompt::ProjectType;
-
 /// Represents a comprehensive project generation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectGenerationConfig {
@@ -20,7 +17,7 @@ pub struct ProjectGenerationConfig {
     pub framework: String,
 
     /// Type of project
-    pub project_type: ProjectType,
+    pub project_type: GenerationProjectType,
 
     /// List of technologies used
     pub technologies: Vec<String>,
@@ -29,13 +26,13 @@ pub struct ProjectGenerationConfig {
     pub components: HashMap<String, String>,
 
     /// Detailed directory structure
-    pub directory_structure: HashMap<String, Vec<String>>,
+    pub directory_structure: HashMap<String, DirectoryEntry>,
 
     /// Production and development dependencies
-    pub dependencies: DependencyConfig,
+    pub dependencies: GenerationDependencyConfig,
 
     /// Build and configuration details
-    pub build_config: BuildConfig,
+    pub build_config: GenerationBuildConfig,
 
     /// Commands to initialize the project
     pub initialization_commands: Vec<String>,
@@ -46,7 +43,7 @@ pub struct ProjectGenerationConfig {
 
 /// Represents different types of software projects
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub enum ProjectType {
+pub enum GenerationProjectType {
     WebApplication,
     CommandLineInterface,
     Library,
@@ -57,35 +54,66 @@ pub enum ProjectType {
 
 /// Configuration for project dependencies
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DependencyConfig {
-    /// Core production dependencies
-    pub production: HashMap<String, String>,
+#[serde(untagged)]
+pub enum GenerationDependencyConfig {
+    /// Structured format with production and development dependencies
+    Structured {
+        /// Core production dependencies
+        production: HashMap<String, String>,
+        /// Development and testing dependencies
+        development: HashMap<String, String>,
+    },
+    /// Simple map format for all dependencies
+    Map(HashMap<String, HashMap<String, String>>)
+}
 
-    /// Development and testing dependencies
-    pub development: HashMap<String, String>,
+impl GenerationDependencyConfig {
+    pub fn get_dependencies(&self, env: &str) -> Option<&HashMap<String, String>> {
+        match self {
+            GenerationDependencyConfig::Structured { production, development } => {
+                match env {
+                    "production" => Some(production),
+                    "development" => Some(development),
+                    _ => None
+                }
+            },
+            GenerationDependencyConfig::Map(map) => map.get(env)
+        }
+    }
+
+    pub fn new() -> Self {
+        GenerationDependencyConfig::Structured {
+            production: HashMap::new(),
+            development: HashMap::new(),
+        }
+    }
 }
 
 /// Build and configuration details
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildConfig {
+pub struct GenerationBuildConfig {
     /// Build tool or system
     pub build_tool: String,
 
     /// Scripts for different build stages
-    pub scripts: BuildScripts,
+    pub scripts: HashMap<String, String>,
 }
 
-/// Build scripts for different environments
+/// Directory entry that can be either a single file or a list of files
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct BuildScripts {
-    /// Development build script
-    pub dev: String,
+#[serde(untagged)]
+pub enum DirectoryEntry {
+    File(String),
+    Directory(Vec<String>),
+}
 
-    /// Production build script
-    pub build: String,
-
-    /// Test execution script
-    pub test: String,
+impl DirectoryEntry {
+    pub fn to_vec(&self) -> Vec<String> {
+        match self {
+            DirectoryEntry::File(file) => vec![file.clone()],
+            DirectoryEntry::Directory(files) => files.clone(),
+        }
+    }
 }
 
 impl ProjectGenerationConfig {
@@ -95,9 +123,13 @@ impl ProjectGenerationConfig {
         description: String,
         language: String,
         framework: String,
-        project_type: ProjectType,
+        project_type: GenerationProjectType,
     ) -> Result<Self, String> {
-        let config = Self {
+        if !is_valid_project_name(&project_name) {
+            return Err("Invalid project name. Use kebab-case (e.g., my-project)".to_string());
+        }
+
+        Ok(Self {
             project_name,
             description,
             language,
@@ -106,60 +138,43 @@ impl ProjectGenerationConfig {
             technologies: Vec::new(),
             components: HashMap::new(),
             directory_structure: HashMap::new(),
-            dependencies: DependencyConfig {
-                production: HashMap::new(),
-                development: HashMap::new(),
-            },
-            build_config: BuildConfig {
+            dependencies: GenerationDependencyConfig::new(),
+            build_config: GenerationBuildConfig {
                 build_tool: String::new(),
-                scripts: BuildScripts {
-                    dev: String::new(),
-                    build: String::new(),
-                    test: String::new(),
-                },
+                scripts: HashMap::new(),
             },
             initialization_commands: Vec::new(),
             recommendations: Vec::new(),
-        };
-
-        // Validate the configuration
-        config.validate()?;
-
-        Ok(config)
+        })
     }
 
     /// Validate the project generation configuration
     pub fn validate(&self) -> Result<(), String> {
-        // Validate project name
+        // Check required fields
+        if self.project_name.is_empty() {
+            return Err("Project name is required".to_string());
+        }
         if !is_valid_project_name(&self.project_name) {
-            return Err("Project name must be in kebab-case format".to_string());
+            return Err("Invalid project name format".to_string());
+        }
+        if self.description.is_empty() {
+            return Err("Project description is required".to_string());
+        }
+        if self.language.is_empty() {
+            return Err("Programming language is required".to_string());
+        }
+        if self.framework.is_empty() {
+            return Err("Framework is required".to_string());
         }
 
-        // Validate language
-        if self.language.trim().is_empty() {
-            return Err("Language must be specified".to_string());
-        }
-
-        // Validate project type
-        match self.project_type {
-            ProjectType::WebApplication => {
-                if self.framework.trim().is_empty() {
-                    return Err("Web applications must specify a framework".to_string());
-                }
+        // Check directory structure
+        for (dir, _) in &self.directory_structure {
+            if dir.is_empty() {
+                return Err("Directory name cannot be empty".to_string());
             }
-            _ => {}
-        }
-
-        // Validate components
-        for (component_name, responsibility) in &self.components {
-            if component_name.trim().is_empty() || responsibility.trim().is_empty() {
-                return Err("Component name and responsibility must not be empty".to_string());
+            if dir.contains('/') || dir.contains('\\') {
+                return Err("Directory name cannot contain path separators".to_string());
             }
-        }
-
-        // Validate directory structure
-        if self.directory_structure.is_empty() {
-            return Err("Directory structure must be defined".to_string());
         }
 
         Ok(())
@@ -167,33 +182,41 @@ impl ProjectGenerationConfig {
 
     /// Add a production dependency
     pub fn add_production_dependency(&mut self, name: &str, version: &str) {
-        self.dependencies.production.insert(name.to_string(), version.to_string());
+        match &mut self.dependencies {
+            GenerationDependencyConfig::Structured { production, .. } => {
+                production.insert(name.to_string(), version.to_string());
+            }
+            GenerationDependencyConfig::Map(map) => {
+                map.entry("production".to_string())
+                    .or_default()
+                    .insert(name.to_string(), version.to_string());
+            }
+        }
     }
 
     /// Add a development dependency
     pub fn add_development_dependency(&mut self, name: &str, version: &str) {
-        self.dependencies.development.insert(name.to_string(), version.to_string());
+        match &mut self.dependencies {
+            GenerationDependencyConfig::Structured { development, .. } => {
+                development.insert(name.to_string(), version.to_string());
+            }
+            GenerationDependencyConfig::Map(map) => {
+                map.entry("development".to_string())
+                    .or_default()
+                    .insert(name.to_string(), version.to_string());
+            }
+        }
     }
 
     /// Set build scripts
     pub fn set_build_scripts(&mut self, dev: &str, build: &str, test: &str) -> Result<(), String> {
-        if dev.trim().is_empty() || build.trim().is_empty() || test.trim().is_empty() {
-            return Err("All build scripts must be specified".to_string());
+        if dev.is_empty() || build.is_empty() || test.is_empty() {
+            return Err("Build scripts cannot be empty".to_string());
         }
 
-        self.build_config.scripts = BuildScripts {
-            dev: dev.to_string(),
-            build: build.to_string(),
-            test: test.to_string(),
-        };
-
-        // Set appropriate build tool based on language
-        self.build_config.build_tool = match self.language.to_lowercase().as_str() {
-            "rust" => "cargo".to_string(),
-            "javascript" | "typescript" => "npm".to_string(),
-            "python" => "pip".to_string(),
-            _ => return Err(format!("Unsupported language: {}", self.language)),
-        };
+        self.build_config.scripts.insert("dev".to_string(), dev.to_string());
+        self.build_config.scripts.insert("build".to_string(), build.to_string());
+        self.build_config.scripts.insert("test".to_string(), test.to_string());
 
         Ok(())
     }
@@ -210,41 +233,26 @@ impl ProjectGenerationConfig {
 
     /// Add a component with its responsibility
     pub fn add_component(&mut self, name: &str, responsibility: &str) -> Result<(), String> {
-        if name.trim().is_empty() {
+        if name.is_empty() {
             return Err("Component name cannot be empty".to_string());
         }
-        if responsibility.trim().is_empty() {
+        if responsibility.is_empty() {
             return Err("Component responsibility cannot be empty".to_string());
         }
 
-        self.components.insert(name.to_string(), responsibility.to_string());
-        
-        // Automatically create directory structure for the component
-        let mut files = Vec::new();
-        match self.language.to_lowercase().as_str() {
-            "rust" => {
-                files.push("mod.rs".to_string());
-                files.push("tests.rs".to_string());
-            }
-            "javascript" | "typescript" => {
-                files.push("index.js".to_string());
-                files.push("__tests__/index.test.js".to_string());
-            }
-            "python" => {
-                files.push("__init__.py".to_string());
-                files.push("test_component.py".to_string());
-            }
-            _ => {}
+        // Validate component name format
+        if !name.chars().all(|c| c.is_alphanumeric() || c == '_' || c == '-') {
+            return Err("Component name can only contain alphanumeric characters, underscores, and hyphens".to_string());
         }
-        
-        self.directory_structure.insert(name.to_string(), files);
+
+        self.components.insert(name.to_string(), responsibility.to_string());
         Ok(())
     }
 
     /// Add a technology
     pub fn add_technology(&mut self, technology: &str) -> Result<(), String> {
-        if technology.trim().is_empty() {
-            return Err("Technology cannot be empty".to_string());
+        if technology.is_empty() {
+            return Err("Technology name cannot be empty".to_string());
         }
         self.technologies.push(technology.to_string());
         Ok(())
@@ -253,90 +261,46 @@ impl ProjectGenerationConfig {
     /// Generate a sample project configuration for testing
     pub fn sample_web_project() -> Self {
         let mut config = Self::new(
-            "task-tracker".to_string(),
-            "A simple task tracking application".to_string(),
-            "rust".to_string(),
-            "actix-web".to_string(),
-            ProjectType::WebApplication,
+            "sample-web-app".to_string(),
+            "A sample web application".to_string(),
+            "Python".to_string(),
+            "Flask".to_string(),
+            GenerationProjectType::WebApplication,
         ).unwrap();
 
-        // Add components
-        config.add_component("api", "RESTful API endpoints for task management").unwrap();
-        config.add_component("auth", "Authentication and authorization service").unwrap();
-        config.add_component("database", "Database access and models").unwrap();
-        config.add_component("utils", "Common utilities and helper functions").unwrap();
+        config.add_technology("Flask").unwrap();
+        config.add_technology("SQLite").unwrap();
+        config.add_technology("JWT").unwrap();
 
-        // Production dependencies
-        config.add_production_dependency("actix-web", "4.3.1");
-        config.add_production_dependency("serde", "1.0.193");
-        config.add_production_dependency("serde_json", "1.0.108");
-        config.add_production_dependency("sqlx", "0.7.3");
-        config.add_production_dependency("tokio", "1.35.1");
+        config.add_production_dependency("flask", "2.0.1");
+        config.add_production_dependency("sqlalchemy", "1.4.23");
+        config.add_development_dependency("pytest", "6.2.5");
+        config.add_development_dependency("black", "21.9b0");
 
-        // Development dependencies
-        config.add_development_dependency("mockall", "0.11.4");
-        config.add_development_dependency("cargo-watch", "8.5.2");
-        config.add_development_dependency("clippy", "0.1.77");
-
-        // Directory structure
-        config.directory_structure = HashMap::from([
-            ("src".to_string(), vec![
-                "main.rs".to_string(),
-                "api/mod.rs".to_string(),
-                "auth/mod.rs".to_string(),
-                "database/mod.rs".to_string(),
-                "utils/mod.rs".to_string(),
-            ]),
-            ("tests".to_string(), vec![
-                "api_tests.rs".to_string(),
-                "auth_tests.rs".to_string(),
-                "database_tests.rs".to_string(),
-            ]),
-            ("migrations".to_string(), vec![
-                "initial_schema.sql".to_string()
-            ]),
-        ]);
-
-        // Set build scripts
         config.set_build_scripts(
-            "cargo watch -x run",
-            "cargo build --release",
-            "cargo test",
+            "flask run",
+            "python setup.py build",
+            "pytest",
         ).unwrap();
 
-        // Add initialization commands
-        config.add_initialization_command("cargo new task-tracker");
-        config.add_initialization_command("cd task-tracker");
-        config.add_initialization_command("cargo add actix-web serde serde_json sqlx tokio");
-        config.add_initialization_command("cargo add --dev mockall cargo-watch clippy");
+        config.add_initialization_command("python -m venv venv");
+        config.add_initialization_command("source venv/bin/activate");
+        config.add_initialization_command("pip install -r requirements.txt");
 
-        // Add recommendations
-        config.add_recommendation("Use SQLx migrations for database schema management");
-        config.add_recommendation("Implement proper error handling for each component");
-        config.add_recommendation("Add comprehensive tests for each component");
         config.add_recommendation("Use environment variables for configuration");
+        config.add_recommendation("Implement comprehensive error handling");
 
         config
     }
 }
 
 fn is_valid_project_name(name: &str) -> bool {
-    // Check if the name is in kebab-case format
-    let is_kebab_case = name.chars().all(|c| c.is_ascii_lowercase() || c == '-');
-    let no_consecutive_hyphens = !name.contains("--");
-    let valid_start_end = !name.starts_with('-') && !name.ends_with('-');
-    
-    is_kebab_case && no_consecutive_hyphens && valid_start_end
-}
+    if name.is_empty() {
+        return false;
+    }
 
-// Type aliases for backward compatibility
-pub use crate::prompt::{
-    ProjectConfig,
-    ProjectType,
-    DependencyConfig,
-    BuildConfig,
-    BuildScripts,
-};
+    name.chars().all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+}
 
 #[cfg(test)]
 mod tests {
@@ -344,26 +308,19 @@ mod tests {
 
     #[test]
     fn test_project_generation_config_creation() {
-        let mut config = ProjectGenerationConfig::new(
-            "task-manager".to_string(),
-            "A simple task management application".to_string(),
-            "rust".to_string(),
-            "actix-web".to_string(),
-            ProjectType::WebApplication,
+        let config = ProjectGenerationConfig::new(
+            "test-project".to_string(),
+            "A test project".to_string(),
+            "Python".to_string(),
+            "Flask".to_string(),
+            GenerationProjectType::WebApplication,
         ).unwrap();
 
-        config.add_production_dependency("actix-web", "4.0.1");
-        config.add_development_dependency("mockall", "0.11.0");
-        config.set_build_scripts(
-            "cargo run", 
-            "cargo build --release", 
-            "cargo test"
-        ).unwrap();
-        config.add_initialization_command("cargo new task-manager");
-        config.add_recommendation("Use environment variables for configuration");
-
-        assert_eq!(config.project_name, "task-manager");
-        assert_eq!(config.dependencies.production.get("actix-web"), Some(&"4.0.1".to_string()));
-        assert_eq!(config.build_config.scripts.test, "cargo test");
+        assert_eq!(config.project_name, "test-project");
+        assert_eq!(config.language, "Python");
+        assert_eq!(config.framework, "Flask");
+        assert!(config.technologies.is_empty());
+        assert!(config.components.is_empty());
+        assert!(config.directory_structure.is_empty());
     }
 }

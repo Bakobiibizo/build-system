@@ -5,7 +5,7 @@ release/
 *.rs.bk
 
 # Environment files
-.env
+
 .env.local
 .env.development
 .env.production
@@ -58,5 +58,5 @@ Cargo.lock
 
 # Build directory
 /build/
-
+.env
 .reference/

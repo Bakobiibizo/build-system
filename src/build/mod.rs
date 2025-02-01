@@ -193,30 +193,30 @@ expiration_hours = 24
     }
 
     fn create_config_files(&self, project_dir: &PathBuf, config: &Value) -> Result<()> {
-        // Create Cargo.toml for Rust projects
-        if config["language"].as_str() == Some("Rust") {
-            let cargo_toml_path = project_dir.join("Cargo.toml");
-            
-            // Prepare dependencies
-            let mut prod_deps = String::new();
-            let mut dev_deps = String::new();
+        match config["language"].as_str() {
+            Some("Rust") => {
+                let cargo_toml_path = project_dir.join("Cargo.toml");
+                
+                // Prepare dependencies
+                let mut prod_deps = String::new();
+                let mut dev_deps = String::new();
 
-            if let Some(dependencies) = config["dependencies"].as_object() {
-                if let Some(production) = dependencies.get("production").and_then(|d| d.as_object()) {
-                    for (name, version) in production {
-                        prod_deps.push_str(&format!("{} = \"{}\"\n", name, version.as_str().unwrap_or("latest")));
+                if let Some(dependencies) = config["dependencies"].as_object() {
+                    if let Some(production) = dependencies.get("production").and_then(|d| d.as_object()) {
+                        for (name, version) in production {
+                            prod_deps.push_str(&format!("{} = \"{}\"\n", name, version.as_str().unwrap_or("latest")));
+                        }
+                    }
+
+                    if let Some(development) = dependencies.get("development").and_then(|d| d.as_object()) {
+                        for (name, version) in development {
+                            dev_deps.push_str(&format!("{} = \"{}\"\n", name, version.as_str().unwrap_or("latest")));
+                        }
                     }
                 }
 
-                if let Some(development) = dependencies.get("development").and_then(|d| d.as_object()) {
-                    for (name, version) in development {
-                        dev_deps.push_str(&format!("{} = \"{}\"\n", name, version.as_str().unwrap_or("latest")));
-                    }
-                }
-            }
-
-            let cargo_toml_content = format!(
-                r#"[package]
+                let cargo_toml_content = format!(
+                    r#"[package]
 name = "{}"
 version = "0.1.0"
 edition = "2021"
@@ -226,13 +226,43 @@ edition = "2021"
 
 [dev-dependencies]
 {}"#, 
-                config["project_name"].as_str().unwrap_or("taskmaster"),
-                prod_deps,
-                dev_deps
-            );
+                    config["project_name"].as_str().unwrap_or("taskmaster"),
+                    prod_deps,
+                    dev_deps
+                );
 
-            std::fs::write(&cargo_toml_path, cargo_toml_content)
-                .with_context(|| format!("Failed to write Cargo.toml: {}", cargo_toml_path.display()))?;
+                std::fs::write(&cargo_toml_path, cargo_toml_content)
+                    .with_context(|| format!("Failed to write Cargo.toml: {}", cargo_toml_path.display()))?;
+            },
+            Some("Python") => {
+                // Create requirements.txt
+                if let Some(dependencies) = config["dependencies"].as_object() {
+                    if let Some(production) = dependencies.get("production").and_then(|d| d.get("package")) {
+                        let requirements = production.as_str()
+                            .map(|deps| deps.split(',')
+                                .map(|s| s.trim().to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n"))
+                            .unwrap_or_default();
+                        
+                        std::fs::write(project_dir.join("requirements.txt"), requirements)
+                            .with_context(|| "Failed to write requirements.txt")?;
+                    }
+
+                    if let Some(development) = dependencies.get("development").and_then(|d| d.get("package")) {
+                        let dev_requirements = development.as_str()
+                            .map(|deps| deps.split(',')
+                                .map(|s| s.trim().to_string())
+                                .collect::<Vec<_>>()
+                                .join("\n"))
+                            .unwrap_or_default();
+                        
+                        std::fs::write(project_dir.join("dev-requirements.txt"), dev_requirements)
+                            .with_context(|| "Failed to write dev-requirements.txt")?;
+                    }
+                }
+            },
+            _ => {}
         }
 
         Ok(())

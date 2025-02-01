@@ -1,0 +1,151 @@
+# Advanced Project Generation Prompt Template
+
+## Objective
+Generate a comprehensive, AI-driven project configuration based on the user's requirements. Provide a detailed, structured approach to project initialization.
+
+## Input Analysis Guidelines
+1. Carefully parse the user's project description
+2. Infer potential technologies and frameworks
+3. Recommend best practices and architectural patterns
+4. Provide a flexible, extensible configuration
+
+## Project Configuration Schema
+- Project Name: [Derive from user input or generate a meaningful name]
+- Project Type: [Select most appropriate type]
+- Primary Language: [Recommend based on project description]
+- Framework: [Suggest optimal framework]
+- Architecture: [Recommend architectural style]
+
+## Detailed Configuration Generation Process
+
+### 1. Project Type Determination
+- Analyze description for key characteristics
+- Match against predefined project types:
+  - Web Application
+  - Command Line Interface
+  - Library
+  - Microservice
+  - Desktop Application
+  - Mobile Application
+
+### 2. Technology Stack Recommendation
+- Evaluate project requirements
+- Consider:
+  - Performance needs
+  - Scalability
+  - Development ecosystem
+  - Team expertise
+  - Integration capabilities
+
+### 3. Dependency Management
+- Production Dependencies:
+  - Core libraries essential for functionality
+  - Version compatibility
+  - Active maintenance status
+- Development Dependencies:
+  - Testing frameworks
+  - Build tools
+  - Linters
+  - Development utilities
+
+### 4. Build Configuration
+- Select appropriate build tool
+- Define standard scripts:
+  - Development environment setup
+  - Production build process
+  - Testing and validation
+
+### 5. Directory Structure
+- Generate recommended project layout
+- Create logical separation of concerns
+- Ensure scalability and maintainability
+
+### 6. Initialization Commands
+- Provide step-by-step setup instructions
+- Include dependency installation
+- Configure initial project state
+
+### 7. Additional Recommendations
+- Performance optimization strategies
+- Security considerations
+- Potential future enhancements
+
+## Output Format
+Provide a JSON-serializable configuration with all specified fields, ensuring maximum flexibility and detail.
+
+## Constraints and Best Practices
+- Prioritize modern, well-maintained technologies
+- Ensure cross-platform compatibility
+- Recommend open-source solutions
+- Consider future extensibility
+- Balance complexity with maintainability
+
+## Example Prompt Processing
+Input: "Create a web application for task management with user authentication"
+
+Expected Output Configuration:
+```json
+{
+  "project_name": "TaskMaster",
+  "description": "Web-based task management application with user authentication",
+  "project_type": "WebApplication",
+  "language": "Rust",
+  "framework": "Rocket",
+  "technologies": [
+    "Rust",
+    "PostgreSQL",
+    "JWT Authentication",
+    "Docker"
+  ],
+  "dependencies": {
+    "production": {
+      "rocket": "0.5.0-rc.2",
+      "diesel": "1.4.8",
+      "jsonwebtoken": "8.2.0"
+    },
+    "development": {
+      "cargo-watch": "8.4.0",
+      "rust-analyzer": "latest"
+    }
+  },
+  "build_config": {
+    "build_tool": "cargo",
+    "scripts": {
+      "dev": "cargo watch -x run",
+      "build": "cargo build --release",
+      "test": "cargo test"
+    }
+  },
+  "directory_structure": {
+    "src": ["main.rs", "routes", "models", "auth"],
+    "tests": ["integration", "unit"],
+    "migrations": [],
+    "config": ["database.toml", "jwt.toml"]
+  },
+  "initialization_commands": [
+    "cargo new taskmaster",
+    "cd taskmaster",
+    "cargo add rocket diesel jsonwebtoken",
+    "diesel setup"
+  ],
+  "recommendations": [
+    "Implement role-based access control",
+    "Use environment variable configuration",
+    "Implement comprehensive logging"
+  ]
+}
+```
+
+## Prompt Generation Strategy
+1. Extract key requirements
+2. Apply domain knowledge
+3. Generate flexible, intelligent configuration
+4. Validate against best practices
+5. Provide actionable, detailed output
+
+## Evaluation Metrics
+- Relevance to user requirements
+- Technology stack appropriateness
+- Configurability
+- Future extensibility
+- Adherence to best practices

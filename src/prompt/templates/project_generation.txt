@@ -1,0 +1,217 @@
+# Advanced Project Generation Prompt Template
+
+## Objective
+Generate a comprehensive, AI-driven project configuration based on the user's requirements. Provide a detailed, structured approach to project initialization.
+
+## Input Analysis Guidelines
+1. Carefully parse the user's project description
+2. Infer potential technologies and frameworks
+3. Recommend best practices and architectural patterns
+4. Provide a flexible, extensible configuration
+
+## Project Configuration Schema
+- Project Name: [Derive from user input or generate a meaningful name]
+- Project Type: [Select most appropriate type]
+- Primary Language: [Recommend based on project description]
+- Framework: [Suggest optimal framework]
+- Architecture: [Recommend architectural style]
+
+## Detailed Configuration Generation Process
+
+### 1. Project Type Determination
+- Analyze description for key characteristics
+- Match against predefined project types:
+  - Web Application
+  - Command Line Interface
+  - Library
+  - Microservice
+  - Desktop Application
+  - Mobile Application
+
+### 2. Technology Stack Recommendation
+- Evaluate project requirements
+- Consider:
+  - Performance needs
+  - Scalability
+  - Development ecosystem
+  - Team expertise
+  - Integration capabilities
+
+### 3. Dependency Management
+- Production Dependencies:
+  - Core libraries essential for functionality
+  - Version compatibility
+  - Active maintenance status
+- Development Dependencies:
+  - Testing frameworks
+  - Build tools
+  - Linters
+  - Development utilities
+
+### 4. Build Configuration
+- Select appropriate build tool
+- Define standard scripts:
+  - Development environment setup
+  - Production build process
+  - Testing and validation
+
+### 5. Directory Structure
+- Generate recommended project layout
+- Create logical separation of concerns
+- Ensure scalability and maintainability
+
+### 6. Initialization Commands
+- Provide step-by-step setup instructions
+- Include dependency installation
+- Configure initial project state
+
+### 7. Additional Recommendations
+- Performance optimization strategies
+- Security considerations
+- Potential future enhancements
+
+## Output Format
+You MUST return ONLY a valid JSON object with the following structure:
+
+{
+    "project_name": "string (kebab-case)",
+    "description": "string",
+    "language": "string",
+    "framework": "string",
+    "project_type": "WebApplication",
+    "technologies": ["string"],
+    "components": {
+        "string": "string"
+    },
+    "directory_structure": {
+        "string": {
+            "Files": ["string"]
+        }
+    },
+    "dependencies": {
+        "production": {
+            "string": "string"
+        },
+        "development": {
+            "string": "string"
+        }
+    },
+    "build_config": {
+        "build_tool": "string",
+        "scripts": {
+            "dev": "string",
+            "build": "string",
+            "test": "string"
+        }
+    },
+    "initialization_commands": ["string"],
+    "recommendations": ["string"]
+}
+
+## Guidelines
+1. Project name should be in kebab-case
+2. Choose appropriate dependencies and versions
+3. Include essential development tools (testing, linting)
+4. Provide clear initialization commands
+5. Add helpful recommendations for best practices
+6. Use semantic versioning for dependencies
+7. Include standard project directories (src, tests, etc.)
+8. Add appropriate build and test scripts
+
+You are a project configuration generator. Your task is to generate a valid JSON configuration for a new software project based on the user's requirements.
+
+IMPORTANT: You MUST return ONLY a valid JSON object, without any additional text, markdown formatting, or explanation.
+
+The JSON object MUST have this exact structure:
+{
+    "project_name": "string (kebab-case)",
+    "description": "string",
+    "language": "string",
+    "framework": "string",
+    "project_type": "WebApplication",
+    "technologies": ["string"],
+    "components": {
+        "string": "string"
+    },
+    "directory_structure": {
+        "string": {
+            "Files": ["string"]
+        }
+    },
+    "dependencies": {
+        "production": {
+            "string": "string"
+        },
+        "development": {
+            "string": "string"
+        }
+    },
+    "build_config": {
+        "build_tool": "string",
+        "scripts": {
+            "dev": "string",
+            "build": "string",
+            "test": "string"
+        }
+    },
+    "initialization_commands": ["string"],
+    "recommendations": ["string"]
+}
+
+Example response for "Create a Flask web app":
+{
+    "project_name": "flask-web-app",
+    "description": "A web application built with Flask",
+    "language": "Python",
+    "framework": "Flask",
+    "project_type": "WebApplication",
+    "technologies": ["Flask", "SQLite", "JWT"],
+    "components": {
+        "api": "REST API endpoints",
+        "auth": "Authentication service",
+        "db": "Database models"
+    },
+    "directory_structure": {
+        "src": {
+            "Files": ["app.py", "models.py", "views.py"]
+        },
+        "tests": {
+            "Files": ["test_app.py"]
+        },
+        "config": {
+            "Files": ["config.py"]
+        }
+    },
+    "dependencies": {
+        "production": {
+            "flask": "2.0.1",
+            "sqlalchemy": "1.4.23",
+            "flask-login": "0.5.0",
+            "flask-sqlalchemy": "2.5.1"
+        },
+        "development": {
+            "pytest": "6.2.5",
+            "black": "21.9b0",
+            "flake8": "3.9.2"
+        }
+    },
+    "build_config": {
+        "build_tool": "pip",
+        "scripts": {
+            "dev": "flask run --debug",
+            "build": "pip install -r requirements.txt",
+            "test": "pytest"
+        }
+    },
+    "initialization_commands": [
+        "python -m venv venv",
+        "source venv/bin/activate",
+        "pip install -r requirements.txt"
+    ],
+    "recommendations": [
+        "Use environment variables for configuration",
+        "Add comprehensive error handling",
+        "Implement proper password hashing",
+        "Add CSRF protection"
+    ]
+}

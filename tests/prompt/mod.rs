@@ -39,10 +39,16 @@ mod tests {
             project_type: ProjectType::Application,
             language: "rust".to_string(),
             framework: Some("actix-web".to_string()),
-            dependencies: Some(DependencyConfig {
-                required: vec!["serde".to_string()],
-                optional: vec!["tokio".to_string()],
-                development: vec!["mockall".to_string()],
+            dependencies: Some({
+                let mut deps = HashMap::new();
+                let mut production = HashMap::new();
+                production.insert("serde".to_string(), "1.0".to_string());
+                deps.insert("production".to_string(), production);
+                
+                let mut development = HashMap::new();
+                development.insert("mockall".to_string(), "0.11".to_string());
+                deps.insert("development".to_string(), development);
+                deps
             }),
             build_config: None,
             directory_structure: None,

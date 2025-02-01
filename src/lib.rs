@@ -71,6 +71,41 @@ pub async fn validate_saved_build(
     validation::validate_build(&validation)
 }
 
+pub struct BuildSystem;
+
+impl BuildSystem {
+    pub fn new() -> Self {
+        BuildSystem
+    }
+
+    pub async fn generate_project(&self, config: crate::prompt::ProjectConfig) -> Result<()> {
+        use crate::project_generator::{ProjectDesign, Dependencies, BuildConfig, ProjectGenerator};
+
+        // Convert ProjectConfig to ProjectDesign
+        let design = ProjectDesign {
+            name: config.name,
+            description: config.description.unwrap_or_default(),
+            technologies: config.technologies,
+            project_type: config.project_type.to_string(),
+            language: config.language,
+            framework: config.framework.unwrap_or_default(),
+            dependencies: Dependencies {
+                production: config.dependencies.clone().and_then(|d| d.get("production").cloned()).unwrap_or_default(),
+                development: config.dependencies.clone().and_then(|d| d.get("development").cloned()).unwrap_or_default(),
+            },
+            build_config: BuildConfig {
+                build_tool: config.build_config.as_ref().map(|c| c.build_tool.clone()).unwrap_or_default(),
+                scripts: config.build_config.as_ref().map(|c| c.scripts.clone()).unwrap_or_default(),
+            },
+            directory_structure: config.directory_structure.unwrap_or_default(),
+        };
+
+        let generator = ProjectGenerator::new(design);
+        generator.generate().await?;
+        Ok(())
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -121,7 +156,7 @@ mod tests {
         };
 
         let generator = project_generator::ProjectGenerator::new(config);
-        generator.generate()?;
+        generator.generate();
 
         assert!(fs::metadata("build/test").is_ok());
 

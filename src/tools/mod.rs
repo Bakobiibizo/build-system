@@ -1,12 +1,106 @@
+use anyhow::Result;
+use async_trait::async_trait;
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use std::collections::HashMap;
+use std::fmt::Debug;
+
+mod build;
+mod project;
+pub use build::BuildTool;
+pub use project::ProjectTool;
 
 /// Represents a tool in the system
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct Tool {
     pub name: String,
     pub description: String,
-    pub parameters: ToolParameters,
+    pub parameters: Value,
+}
+
+/// Trait for executable tools
+#[async_trait::async_trait]
+pub trait ExecutableTool: Send + Sync {
+    async fn execute(&self, arguments: &str) -> Result<String, String>;
+    fn get_tool_definition(&self) -> Tool;
+    fn get_short_description(&self) -> String;
+    fn get_long_description(&self) -> String;
+}
+
+/// Tool registry to manage available tools
+pub struct ToolRegistry {
+    tools: HashMap<String, Box<dyn ExecutableTool>>,
+}
+
+impl ToolRegistry {
+    pub fn new() -> Self {
+        let mut registry = Self {
+            tools: HashMap::new(),
+        };
+        
+        // Register tools
+        registry.register_tool("build".to_string(), Box::new(BuildTool::default()));
+        registry.register_tool("project".to_string(), Box::new(ProjectTool::default()));
+        
+        registry
+    }
+
+    pub fn register_tool<T: ExecutableTool + 'static>(&mut self, name: String, tool: Box<T>) {
+        self.tools.insert(name, tool);
+    }
+
+    pub async fn execute_tool(&self, tool_call: &ToolCall) -> Result<ToolResult, String> {
+        let tool = self.tools.get(&tool_call.name)
+            .ok_or_else(|| format!("Tool '{}' not found", tool_call.name))?;
+        
+        let output = tool.execute(&tool_call.arguments).await?;
+        Ok(ToolResult {
+            tool_name: tool_call.name.clone(),
+            output,
+        })
+    }
+
+    pub fn get_tool_definitions(&self) -> Vec<Tool> {
+        self.tools.values()
+            .map(|tool| tool.get_tool_definition())
+            .collect()
+    }
+
+    pub fn get_tool_descriptions(&self) -> Vec<(String, String)> {
+        self.tools.values()
+            .map(|tool| {
+                let def = tool.get_tool_definition();
+                (def.name, tool.get_short_description())
+            })
+            .collect()
+    }
+
+    pub fn get_tool_long_description(&self, name: &str) -> Option<String> {
+        self.tools.get(name)
+            .map(|tool| tool.get_long_description())
+    }
+}
+
+impl Debug for ToolRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("ToolRegistry")
+            .field("tools", &self.tools.keys().collect::<Vec<_>>())
+            .finish()
+    }
+}
+
+/// Tool call representation
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolCall {
+    pub name: String,
+    pub arguments: String,
+}
+
+/// Tool execution result
+#[derive(Debug, Serialize, Deserialize)]
+pub struct ToolResult {
+    pub tool_name: String,
+    pub output: String,
 }
 
 /// JSON Schema-like parameter definition for tools
@@ -27,64 +121,9 @@ pub struct ParameterDefinition {
     pub enum_values: Option<Vec<String>>,
 }
 
-/// Tool call representation
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ToolCall {
-    pub id: String,
-    #[serde(rename = "type")]
-    pub call_type: String,
-    pub function: ToolFunction,
-}
-
 /// Function details for a tool call
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ToolFunction {
     pub name: String,
     pub arguments: String, // JSON string of arguments
-}
-
-/// Tool execution result
-#[derive(Debug, Serialize, Deserialize)]
-pub struct ToolResult {
-    pub tool_call_id: String,
-    pub output: String,
-}
-
-/// Trait for executable tools
-pub trait ExecutableTool {
-    fn execute(&self, arguments: &str) -> Result<String, String>;
-}
-
-/// Tool registry to manage available tools
-pub struct ToolRegistry {
-    tools: HashMap<String, Box<dyn ExecutableTool>>,
-}
-
-impl ToolRegistry {
-    pub fn new() -> Self {
-        ToolRegistry {
-            tools: HashMap::new(),
-        }
-    }
-
-    pub fn register_tool<T: ExecutableTool + 'static>(&mut self, name: String, tool: T) {
-        self.tools.insert(name, Box::new(tool));
-    }
-
-    pub fn execute_tool(&self, tool_call: &ToolCall) -> Result<ToolResult, String> {
-        let tool = self.tools.get(&tool_call.function.name)
-            .ok_or_else(|| format!("Tool '{}' not found", tool_call.function.name))?;
-
-        let output = tool.execute(&tool_call.function.arguments)?;
-
-        Ok(ToolResult {
-            tool_call_id: tool_call.id.clone(),
-            output,
-        })
-    }
-
-    pub fn get_tool_definitions(&self) -> Vec<Tool> {
-        // This would be implemented to return registered tool definitions
-        vec![]
-    }
 }

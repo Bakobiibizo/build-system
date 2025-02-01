@@ -32,12 +32,15 @@ pub struct InferenceClient {
 
 impl InferenceClient {
     pub fn new() -> Result<Self> {
-        let api_key = std::env::var("OPENAI_API_KEY")
-            .map_err(|_| anyhow!("OPENAI_API_KEY environment variable not found"))?;
-        let base_url = std::env::var("OPENAI_API_BASE_URL")
+        let api_key = std::env::var("INFERENCE_API_KEY")
+            .map_err(|_| anyhow!("INFERENCE_API_KEY environment variable not found"))?;
+        let base_url = std::env::var("INFERENCE_API_BASE_URL")
             .unwrap_or_else(|_| "https://api.openai.com/v1".to_string());
-        let model = std::env::var("OPENAI_MODEL")
-            .unwrap_or_else(|_| "gpt-4".to_string());
+        let model = std::env::var("INFERENCE_API_MODEL")
+            .unwrap_or_else(|_| "gpt-3.5-turbo".to_string());
+
+        println!("Using inference model: {}", model);
+        println!("Using base URL: {}", base_url);
 
         Ok(Self {
             api_key,
@@ -85,38 +88,127 @@ impl InferenceClient {
     }
 
     pub async fn generate_project_config(&self, prompt: &str) -> Result<String> {
+        // Read the project generation prompt template
+        let template_path = std::path::Path::new("src/prompt/templates/project_generation_prompt.md");
+        let system_prompt = std::fs::read_to_string(template_path)
+            .context("Failed to read project generation prompt template")?;
+
+        // Get temperature from env or use default
+        let temperature = std::env::var("INFERENCE_API_TEMPERATURE")
+            .ok()
+            .and_then(|t| t.parse::<f32>().ok())
+            .unwrap_or(0.7);
+
         let request_body = json!({
             "model": self.model,
             "messages": [
                 {
                     "role": Role::System,
-                    "content": "You are a helpful assistant that generates project configurations."
+                    "content": system_prompt
                 },
                 {
                     "role": Role::User,
                     "content": prompt
                 }
             ],
-            "temperature": 0.7
+            "temperature": temperature
         });
 
+        println!("Sending request to: {}/chat/completions", self.base_url);
+        
         let client = reqwest::Client::new();
         let response = client
             .post(format!("{}/chat/completions", self.base_url))
             .header("Authorization", format!("Bearer {}", self.api_key))
             .json(&request_body)
             .send()
-            .await?
-            .json::<serde_json::Value>()
             .await?;
 
-        response.get("choices")
+        println!("Response status: {}", response.status());
+
+        let response_json = response.json::<serde_json::Value>().await?;
+        
+        // Extract the content from the response
+        let content = response_json.get("choices")
             .and_then(|choices| choices.get(0))
             .and_then(|choice| choice.get("message"))
             .and_then(|message| message.get("content"))
             .and_then(|content| content.as_str())
-            .map(|s| s.to_string())
-            .ok_or_else(|| anyhow!("Failed to extract content from OpenAI response"))
+            .ok_or_else(|| {
+                let err_msg = format!("Failed to extract content from response. Response structure: {:?}", response_json);
+                anyhow!(err_msg)
+            })?;
+
+        // Try to find JSON in the content
+        if let Some(json_str) = Self::extract_json_from_content(content) {
+            // Parse the JSON
+            let config: serde_json::Value = serde_json::from_str(json_str)
+                .context("Failed to parse extracted JSON")?;
+            
+            let obj = config.as_object()
+                .ok_or_else(|| anyhow!("JSON must be an object"))?;
+            
+            // Check for keys containing required terms
+            let has_name = obj.keys()
+                .any(|k| k.to_lowercase().contains("name"));
+            
+            let has_build = obj.keys()
+                .any(|k| k.to_lowercase().contains("build"));
+                
+            let has_language = obj.keys()
+                .any(|k| k.to_lowercase().contains("language"));
+
+            // Build error message for missing fields
+            let mut missing = Vec::new();
+            if !has_name { missing.push("name"); }
+            if !has_language { missing.push("language"); }
+            if !has_build { missing.push("build configuration"); }
+
+            if !missing.is_empty() {
+                return Err(anyhow!("Generated JSON is missing required fields ({}). Found JSON: {}", 
+                    missing.join(", "), json_str));
+            }
+
+            // Create normalized version with standard field names
+            let mut new_config = obj.clone();
+            
+            // Normalize name field
+            if !obj.contains_key("name") {
+                if let Some(name_key) = obj.keys()
+                    .find(|k| k.to_lowercase().contains("name")) {
+                    if let Some(name_value) = obj.get(name_key) {
+                        new_config.remove(name_key);
+                        new_config.insert("name".to_string(), name_value.clone());
+                    }
+                }
+            }
+
+            // Normalize language field
+            if !obj.contains_key("language") {
+                if let Some(lang_key) = obj.keys()
+                    .find(|k| k.to_lowercase().contains("language")) {
+                    if let Some(lang_value) = obj.get(lang_key) {
+                        new_config.remove(lang_key);
+                        new_config.insert("language".to_string(), lang_value.clone());
+                    }
+                }
+            }
+
+            // Normalize build field - use build_config consistently
+            if !obj.contains_key("build_config") {
+                if let Some(build_key) = obj.keys()
+                    .find(|k| k.to_lowercase().contains("build")) {
+                    if let Some(build_value) = obj.get(build_key) {
+                        new_config.remove(build_key);
+                        new_config.insert("build_config".to_string(), build_value.clone());
+                    }
+                }
+            }
+
+            Ok(serde_json::to_string(&new_config)?)
+        } else {
+            Err(anyhow!("Could not find valid JSON in model response"))
+        }
     }
 
     pub async fn generate_project(&self, prompt: &str) -> Result<PathBuf> {
@@ -229,6 +321,68 @@ impl InferenceClient {
 
         Ok(current_response)
     }
+
+    /// Extract JSON from content that might contain markdown or other text
+    fn extract_json_from_content(content: &str) -> Option<&str> {
+        println!("Trying to extract JSON from content:\n{}", content);
+
+        // First try to parse the entire content as JSON
+        if let Ok(_) = serde_json::from_str::<serde_json::Value>(content) {
+            println!("Found JSON in entire content");
+            return Some(content);
+        }
+
+        // Look for JSON between code blocks (including optional language specifier)
+        for block in content.split("```").skip(1).step_by(2) {
+            println!("Found code block:\n{}", block);
+            // Remove any language specifier if present
+            let clean_json = if block.starts_with("json") {
+                println!("Found json language specifier");
+                block[4..].trim()
+            } else {
+                block.trim()
+            };
+            println!("Cleaned JSON:\n{}", clean_json);
+            if let Ok(_) = serde_json::from_str::<serde_json::Value>(clean_json) {
+                println!("Successfully parsed JSON from code block");
+                return Some(clean_json);
+            } else {
+                println!("Failed to parse JSON from code block");
+            }
+        }
+
+        // Look for JSON between curly braces
+        if let Some(start) = content.find('{') {
+            let mut brace_count = 0;
+            let mut in_string = false;
+            let mut escape_next = false;
+            
+            for (i, c) in content[start..].char_indices() {
+                match c {
+                    '{' if !in_string => brace_count += 1,
+                    '}' if !in_string => {
+                        brace_count -= 1;
+                        if brace_count == 0 {
+                            let json_str = &content[start..=start + i];
+                            println!("Found potential JSON between braces:\n{}", json_str);
+                            if let Ok(_) = serde_json::from_str::<serde_json::Value>(json_str) {
+                                println!("Successfully parsed JSON between braces");
+                                return Some(json_str);
+                            } else {
+                                println!("Failed to parse JSON between braces");
+                            }
+                        }
+                    },
+                    '"' if !escape_next => in_string = !in_string,
+                    '\\' if in_string => escape_next = true,
+                    _ => escape_next = false,
+                }
+            }
+        }
+
+        println!("Could not find any valid JSON");
+        None
+    }
 }
 
 #[cfg(test)]
@@ -238,10 +392,10 @@ mod tests {
     #[tokio::test]
     async fn test_generate_project() -> Result<()> {
         // Skip this test if no API key is set
-        match std::env::var("OPENAI_API_KEY") {
+        match std::env::var("INFERENCE_API_KEY") {
             Ok(_) => (),
             Err(_) => {
-                println!("Skipping test_generate_project: No OPENAI_API_KEY set");
+                println!("Skipping test_generate_project: No INFERENCE_API_KEY set");
                 return Ok(());
             }
         }

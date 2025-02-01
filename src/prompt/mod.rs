@@ -2,10 +2,13 @@ use anyhow::{Context, Result};
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use crate::prompt::project_generation::{ProjectGenerationConfig, GenerationProjectType};
+use reqwest;
 
 pub mod error;
 pub mod generator;
 pub mod storage;
+pub mod project_generation;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectConfig {
@@ -15,7 +18,8 @@ pub struct ProjectConfig {
     pub project_type: ProjectType,
     pub language: String,
     pub framework: Option<String>,
-    pub dependencies: Option<DependencyConfig>,
+    pub dependencies: Option<HashMap<String, HashMap<String, String>>>,
+    #[serde(rename = "build_system")]
     pub build_config: Option<BuildConfig>,
     pub directory_structure: Option<HashMap<String, Vec<String>>>,
     pub initialization_commands: Option<Vec<String>>,
@@ -23,18 +27,9 @@ pub struct ProjectConfig {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct DependencyConfig {
-    pub required: Vec<String>,
-    pub optional: Vec<String>,
-    pub development: Vec<String>,
-}
-
-#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct BuildConfig {
-    pub build_system: String,
-    pub build_steps: Vec<String>,
-    pub test_command: Option<String>,
-    pub package_manager: Option<String>,
+    pub build_tool: String,
+    pub scripts: HashMap<String, String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -43,6 +38,32 @@ pub enum ProjectType {
     Application,
     Service,
     Tool,
+    #[serde(rename = "WebApplication")]
+    WebApp,
+    #[serde(rename = "CommandLineInterface")]
+    Cli,
+    #[serde(rename = "MicroService")]
+    Microservice,
+    #[serde(rename = "DesktopApplication")]
+    Desktop,
+    #[serde(rename = "MobileApplication")]
+    Mobile,
+}
+
+impl std::fmt::Display for ProjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            ProjectType::Library => write!(f, "Library"),
+            ProjectType::Application => write!(f, "Application"),
+            ProjectType::Service => write!(f, "Service"),
+            ProjectType::Tool => write!(f, "Tool"),
+            ProjectType::WebApp => write!(f, "WebApplication"),
+            ProjectType::Cli => write!(f, "CommandLineInterface"),
+            ProjectType::Microservice => write!(f, "MicroService"),
+            ProjectType::Desktop => write!(f, "DesktopApplication"),
+            ProjectType::Mobile => write!(f, "MobileApplication"),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -74,9 +95,9 @@ impl PromptManager {
         let template_path = PathBuf::from(template_dir);
         std::fs::create_dir_all(&template_path)?;
 
-        // Write task execution prompt template
-        let task_prompt_path = template_path.join("task_execution_prompt.txt");
-        std::fs::write(&task_prompt_path, include_str!("task_execution_prompt.txt"))?;
+        // Write project generation prompt template
+        let project_prompt_path = template_path.join("project_generation.txt");
+        std::fs::write(&project_prompt_path, include_str!("project_generation.txt"))?;
 
         Ok(Self {
             template_dir: template_dir.to_string(),
@@ -104,37 +125,32 @@ impl PromptManager {
     }
 
     pub async fn generate_project_config(&self, user_request: &str) -> Result<ProjectConfig> {
-        // Read the task execution prompt template
-        let prompt_template_path = PathBuf::from(&self.template_dir).join("task_execution_prompt.txt");
-        let prompt_template = std::fs::read_to_string(prompt_template_path)?;
+        // Load project generation prompt template
+        let template_path = PathBuf::from(&self.template_dir).join("project_generation.txt");
+        let template = tokio::fs::read_to_string(template_path)
+            .await
+            .context("Failed to read project generation template")?;
 
-        // Construct the full prompt by combining the template with the user request
-        let full_prompt = format!(
-            "{}\n\n## User Request\n{}\n\n## Generate Configuration Based on Request",
-            prompt_template, user_request
-        );
+        // Create prompt with user request
+        let prompt = Prompt::new(&template, user_request);
 
-        // Log the full prompt for debugging
-        println!("Full Prompt for Project Config Generation:\n{}", full_prompt);
+        // Print full prompt for debugging
+        println!("Full Prompt for Project Config Generation:");
+        println!("{}", prompt.system_context);
+        println!("\n## User Request");
+        println!("{}", prompt.user_request);
 
-        // Use inference client to generate project configuration
-        let inference_client = crate::inference::InferenceClient::new()?;
-        let generated_config_json = inference_client.generate_project_config(&full_prompt).await?;
+        // Call LLM API
+        let response = self.call_llm_api(&prompt).await?;
 
-        // Log the generated JSON for debugging
-        println!("Generated Project Config JSON:\n{}", generated_config_json);
-
-        // Parse the generated JSON into ProjectConfig
-        let project_config: ProjectConfig = serde_json::from_str(&generated_config_json)
-            .context("Failed to parse generated project configuration")?;
-
-        Ok(project_config)
+        // Parse response into project config
+        self.parse_response(&response)
     }
 
     pub async fn list_templates(&self) -> Result<Vec<String>> {
-        let template_path = PathBuf::from(&self.template_dir);
         let mut templates = Vec::new();
-
+        let template_path = PathBuf::from(&self.template_dir);
+        
         if template_path.exists() && template_path.is_dir() {
             let mut read_dir = tokio::fs::read_dir(template_path).await?;
             while let Some(entry) = read_dir.next_entry().await? {
@@ -143,69 +159,102 @@ impl PromptManager {
                 }
             }
         }
-
+        
         Ok(templates)
     }
 
-    pub async fn parse_response(&self, response: &str) -> Result<ProjectConfig> {
-        // Log the raw response
-        println!("Raw response received: {:?}", response);
+    fn parse_response(&self, response: &str) -> Result<ProjectConfig> {
+        // Find the JSON part in the response
+        let json_start = response.find('{')
+            .ok_or_else(|| anyhow::anyhow!("No JSON object found in response"))?;
+        let json_end = response.rfind('}')
+            .ok_or_else(|| anyhow::anyhow!("No JSON object end found in response"))?;
+        let json_str = &response[json_start..=json_end];
 
-        // Ensure .reference/ai_responses directory exists
-        let save_dir = PathBuf::from(".reference/ai_responses");
-        std::fs::create_dir_all(&save_dir).map_err(|e| {
-            eprintln!("Failed to create response save directory: {}", e);
-            anyhow::anyhow!("Failed to create response save directory: {}", e)
-        })?;
+        // Parse the JSON into a ProjectGenerationConfig first
+        let gen_config: ProjectGenerationConfig = serde_json::from_str(json_str)
+            .context("Failed to parse response as ProjectGenerationConfig")?;
 
-        // Generate unique filename with timestamp
-        let timestamp = chrono::Utc::now().format("%Y%m%d_%H%M%S").to_string();
-        let save_path = save_dir.join(format!("project_config_response_{}.txt", timestamp));
+        // Convert to ProjectConfig
+        Ok(ProjectConfig {
+            name: gen_config.project_name,
+            description: Some(gen_config.description),
+            technologies: gen_config.technologies,
+            project_type: match gen_config.project_type {
+                GenerationProjectType::WebApplication => ProjectType::WebApp,
+                GenerationProjectType::CommandLineInterface => ProjectType::Cli,
+                GenerationProjectType::Library => ProjectType::Library,
+                GenerationProjectType::MicroService => ProjectType::Microservice,
+                GenerationProjectType::DesktopApplication => ProjectType::Desktop,
+                GenerationProjectType::MobileApplication => ProjectType::Mobile,
+            },
+            language: gen_config.language,
+            framework: Some(gen_config.framework),
+            dependencies: Some({
+                let mut deps = HashMap::new();
+                if let Some(production) = gen_config.dependencies.get_dependencies("production") {
+                    deps.insert("production".to_string(), production.clone());
+                }
+                if let Some(development) = gen_config.dependencies.get_dependencies("development") {
+                    deps.insert("development".to_string(), development.clone());
+                }
+                deps
+            }),
+            build_config: Some(BuildConfig {
+                build_tool: gen_config.build_config.build_tool,
+                scripts: gen_config.build_config.scripts,
+            }),
+            directory_structure: Some(gen_config.directory_structure.into_iter()
+                .map(|(k, v)| (k, v.to_vec()))
+                .collect()),
+            initialization_commands: Some(gen_config.initialization_commands),
+            recommendations: Some(gen_config.recommendations),
+        })
+    }
+
+    async fn call_llm_api(&self, prompt: &Prompt) -> Result<String> {
+        // Call the LLM API to generate project configuration
+        let client = reqwest::Client::new();
+        let response = client
+            .post("http://69.30.204.132:7099/v1/chat/completions")
+            .header("Authorization", "Bearer sk-0123456789")
+            .json(&serde_json::json!({
+                "model": "llama3.2:latest",
+                "messages": [
+                    {
+                        "role": "system",
+                        "content": &prompt.system_context
+                    },
+                    {
+                        "role": "user",
+                        "content": &prompt.user_request
+                    }
+                ],
+                "temperature": 0.7,
+                "max_tokens": 2000
+            }))
+            .send()
+            .await?;
+
+        let response_json: serde_json::Value = response.json().await?;
         
-        // Save the full response
-        std::fs::write(&save_path, response).map_err(|e| {
-            eprintln!("Failed to save response to {}: {}", save_path.display(), e);
-            anyhow::anyhow!("Failed to save response to {}: {}", save_path.display(), e)
-        })?;
+        // Debug print the response
+        println!("API Response: {}", serde_json::to_string_pretty(&response_json)?);
+        
+        let content = response_json["choices"][0]["message"]["content"]
+            .as_str()
+            .ok_or_else(|| anyhow::anyhow!("Failed to get response content"))?;
 
-        // Attempt parsing methods with detailed logging
-        println!("Attempting to parse entire response as JSON");
-        if let Ok(project_config) = serde_json::from_str(response) {
-            return Ok(project_config);
-        }
+        // Debug print the content
+        println!("Content: {}", content);
 
-        println!("Attempting to extract JSON from response tags");
-        let re = regex::Regex::new(r"<response>(.*?)</response>").unwrap();
-        if let Some(caps) = re.captures(response) {
-            let response_text = caps.get(1).map(|m| m.as_str()).unwrap_or("");
-            println!("Extracted response text: {:?}", response_text);
-            if let Ok(project_config) = serde_json::from_str(response_text) {
-                return Ok(project_config);
-            }
-        }
-
-        println!("Attempting to find first JSON-like block");
-        let json_re = regex::Regex::new(r"\{[^}]+\}").unwrap();
-        if let Some(json_match) = json_re.find(response) {
-            let json_text = json_match.as_str();
-            println!("Found JSON-like block: {:?}", json_text);
-            if let Ok(project_config) = serde_json::from_str(json_text) {
-                return Ok(project_config);
-            }
-        }
-
-        // If all parsing attempts fail, return an error with the saved file path
-        Err(anyhow::anyhow!(
-            "Failed to parse project configuration from response. Raw response saved to {}",
-            save_path.display()
-        ))
+        Ok(content.to_string())
     }
 }
 
 #[async_trait::async_trait]
 impl PromptProcessor for PromptManager {
     async fn process_response(&self, _response: String) -> Result<()> {
-        // Placeholder implementation
         Ok(())
     }
 }
