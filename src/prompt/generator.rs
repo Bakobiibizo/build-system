@@ -7,7 +7,7 @@ impl PromptGenerator {
         let system_context = "You are a helpful AI assistant that generates project configurations.";
         let user_request = format!(
             "Generate a project configuration for: {}",
-            config.name
+            config.project_name
         );
         Prompt::new(system_context, &user_request)
     }

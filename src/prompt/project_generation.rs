@@ -1,88 +1,110 @@
 use serde::{Deserialize, Serialize};
 use std::collections::HashMap;
+use anyhow::Result;
 
 /// Represents a comprehensive project generation configuration
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct ProjectGenerationConfig {
-    /// The name of the project in kebab-case
+    /// The name of the project
+    #[serde(alias = "name")]
     pub project_name: String,
 
     /// Project description
+    #[serde(default)]
     pub description: String,
 
     /// Primary programming language
     pub language: String,
 
     /// Web framework or library
+    #[serde(default)]
     pub framework: String,
 
     /// Type of project
     pub project_type: GenerationProjectType,
 
     /// List of technologies used
+    #[serde(default)]
     pub technologies: Vec<String>,
 
     /// Project components and their responsibilities
+    #[serde(default)]
     pub components: HashMap<String, String>,
 
     /// Detailed directory structure
+    #[serde(default)]
     pub directory_structure: HashMap<String, DirectoryEntry>,
 
     /// Production and development dependencies
+    #[serde(default)]
     pub dependencies: GenerationDependencyConfig,
 
     /// Build and configuration details
+    #[serde(rename = "build_system", default)]
     pub build_config: GenerationBuildConfig,
 
     /// Commands to initialize the project
+    #[serde(default)]
     pub initialization_commands: Vec<String>,
 
     /// Additional recommendations
+    #[serde(default)]
     pub recommendations: Vec<String>,
 }
 
 /// Represents different types of software projects
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum GenerationProjectType {
+    #[serde(rename = "WebApplication")]
     WebApplication,
+    #[serde(rename = "CommandLineInterface")]
     CommandLineInterface,
     Library,
+    #[serde(rename = "MicroService")]
     MicroService,
+    #[serde(rename = "DesktopApplication")]
     DesktopApplication,
+    #[serde(rename = "MobileApplication")]
     MobileApplication,
+    Application,
+    Service,
+    Tool,
 }
 
-/// Configuration for project dependencies
-#[derive(Debug, Clone, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum GenerationDependencyConfig {
-    /// Structured format with production and development dependencies
-    Structured {
-        /// Core production dependencies
-        production: HashMap<String, String>,
-        /// Development and testing dependencies
-        development: HashMap<String, String>,
-    },
-    /// Simple map format for all dependencies
-    Map(HashMap<String, HashMap<String, String>>)
+impl std::fmt::Display for GenerationProjectType {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            GenerationProjectType::WebApplication => write!(f, "WebApplication"),
+            GenerationProjectType::CommandLineInterface => write!(f, "CommandLineInterface"),
+            GenerationProjectType::Library => write!(f, "Library"),
+            GenerationProjectType::MicroService => write!(f, "MicroService"),
+            GenerationProjectType::DesktopApplication => write!(f, "DesktopApplication"),
+            GenerationProjectType::MobileApplication => write!(f, "MobileApplication"),
+            GenerationProjectType::Application => write!(f, "Application"),
+            GenerationProjectType::Service => write!(f, "Service"),
+            GenerationProjectType::Tool => write!(f, "Tool"),
+        }
+    }
+}
+
+/// Dependency configuration for both production and development
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
+pub struct GenerationDependencyConfig {
+    pub production: HashMap<String, String>,
+    pub development: HashMap<String, String>,
 }
 
 impl GenerationDependencyConfig {
     pub fn get_dependencies(&self, env: &str) -> Option<&HashMap<String, String>> {
-        match self {
-            GenerationDependencyConfig::Structured { production, development } => {
-                match env {
-                    "production" => Some(production),
-                    "development" => Some(development),
-                    _ => None
-                }
-            },
-            GenerationDependencyConfig::Map(map) => map.get(env)
+        match env {
+            "production" => Some(&self.production),
+            "development" => Some(&self.development),
+            _ => None,
         }
     }
 
     pub fn new() -> Self {
-        GenerationDependencyConfig::Structured {
+        Self {
             production: HashMap::new(),
             development: HashMap::new(),
         }
@@ -90,12 +112,9 @@ impl GenerationDependencyConfig {
 }
 
 /// Build and configuration details
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, Serialize, Deserialize, Default)]
 pub struct GenerationBuildConfig {
-    /// Build tool or system
     pub build_tool: String,
-
-    /// Scripts for different build stages
     pub scripts: HashMap<String, String>,
 }
 
@@ -103,15 +122,15 @@ pub struct GenerationBuildConfig {
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(untagged)]
 pub enum DirectoryEntry {
+    Files(Vec<String>),
     File(String),
-    Directory(Vec<String>),
 }
 
 impl DirectoryEntry {
     pub fn to_vec(&self) -> Vec<String> {
         match self {
+            DirectoryEntry::Files(files) => files.clone(),
             DirectoryEntry::File(file) => vec![file.clone()],
-            DirectoryEntry::Directory(files) => files.clone(),
         }
     }
 }
@@ -139,10 +158,7 @@ impl ProjectGenerationConfig {
             components: HashMap::new(),
             directory_structure: HashMap::new(),
             dependencies: GenerationDependencyConfig::new(),
-            build_config: GenerationBuildConfig {
-                build_tool: String::new(),
-                scripts: HashMap::new(),
-            },
+            build_config: GenerationBuildConfig::default(),
             initialization_commands: Vec::new(),
             recommendations: Vec::new(),
         })
@@ -182,30 +198,12 @@ impl ProjectGenerationConfig {
 
     /// Add a production dependency
     pub fn add_production_dependency(&mut self, name: &str, version: &str) {
-        match &mut self.dependencies {
-            GenerationDependencyConfig::Structured { production, .. } => {
-                production.insert(name.to_string(), version.to_string());
-            }
-            GenerationDependencyConfig::Map(map) => {
-                map.entry("production".to_string())
-                    .or_default()
-                    .insert(name.to_string(), version.to_string());
-            }
-        }
+        self.dependencies.production.insert(name.to_string(), version.to_string());
     }
 
     /// Add a development dependency
     pub fn add_development_dependency(&mut self, name: &str, version: &str) {
-        match &mut self.dependencies {
-            GenerationDependencyConfig::Structured { development, .. } => {
-                development.insert(name.to_string(), version.to_string());
-            }
-            GenerationDependencyConfig::Map(map) => {
-                map.entry("development".to_string())
-                    .or_default()
-                    .insert(name.to_string(), version.to_string());
-            }
-        }
+        self.dependencies.development.insert(name.to_string(), version.to_string());
     }
 
     /// Set build scripts

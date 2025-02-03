@@ -35,7 +35,9 @@ pub use build::error::BuildError;
 pub use prompt::generator::PromptGenerator;
 
 use anyhow::Result;
+use std::collections::HashMap;
 use std::path::PathBuf;
+use crate::project_generator::{ProjectDesign, Dependencies, BuildConfig};
 
 /// Save model output and build files for validation
 pub async fn save_model_output_for_validation(
@@ -79,28 +81,65 @@ impl BuildSystem {
     }
 
     pub async fn generate_project(&self, config: crate::prompt::ProjectConfig) -> Result<()> {
-        use crate::project_generator::{ProjectDesign, Dependencies, BuildConfig, ProjectGenerator};
+        use crate::prompt::project_generation::DirectoryEntry;
 
         // Convert ProjectConfig to ProjectDesign
         let design = ProjectDesign {
-            name: config.name,
-            description: config.description.unwrap_or_default(),
+            name: config.project_name,
+            description: config.description,
             technologies: config.technologies,
             project_type: config.project_type.to_string(),
             language: config.language,
-            framework: config.framework.unwrap_or_default(),
+            framework: config.framework,
             dependencies: Dependencies {
-                production: config.dependencies.clone().and_then(|d| d.get("production").cloned()).unwrap_or_default(),
-                development: config.dependencies.clone().and_then(|d| d.get("development").cloned()).unwrap_or_default(),
+                production: config.dependencies.production,
+                development: config.dependencies.development,
             },
             build_config: BuildConfig {
-                build_tool: config.build_config.as_ref().map(|c| c.build_tool.clone()).unwrap_or_default(),
-                scripts: config.build_config.as_ref().map(|c| c.scripts.clone()).unwrap_or_default(),
+                build_tool: config.build_config.build_tool,
+                scripts: config.build_config.scripts,
             },
-            directory_structure: config.directory_structure.unwrap_or_default(),
+            directory_structure: config.directory_structure.into_iter()
+                .map(|(k, v)| (k, v.to_vec()))
+                .collect(),
         };
 
-        let generator = ProjectGenerator::new(design);
+        let generator = project_generator::ProjectGenerator::new(design);
+        generator.generate().await?;
+        Ok(())
+    }
+}
+
+pub struct ProjectManager;
+
+impl ProjectManager {
+    pub fn new() -> Self {
+        Self
+    }
+
+    pub async fn generate_project(&self, config: &crate::prompt::ProjectConfig) -> Result<()> {
+        // Convert ProjectConfig to ProjectDesign
+        let design = ProjectDesign {
+            name: config.project_name.clone(),
+            description: config.description.clone(),
+            technologies: config.technologies.clone(),
+            project_type: config.project_type.to_string(),
+            language: config.language.clone(),
+            framework: config.framework.clone(),
+            dependencies: Dependencies {
+                production: config.dependencies.production.clone(),
+                development: config.dependencies.development.clone(),
+            },
+            build_config: BuildConfig {
+                build_tool: config.build_config.build_tool.clone(),
+                scripts: config.build_config.scripts.clone(),
+            },
+            directory_structure: config.directory_structure.iter()
+                .map(|(k, v)| (k.clone(), v.to_vec()))
+                .collect(),
+        };
+
+        let generator = project_generator::ProjectGenerator::new(design);
         generator.generate().await?;
         Ok(())
     }

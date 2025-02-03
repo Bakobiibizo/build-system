@@ -7,24 +7,29 @@ use crate::tools::ExecutableTool;
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct ProjectDesign {
+    #[serde(alias = "project_name")]
     pub name: String,
     pub description: String,
     pub technologies: Vec<String>,
+    #[serde(alias = "type")]
     pub project_type: String,
+    #[serde(alias = "primary_language")]
     pub language: String,
     pub framework: String,
     pub dependencies: Dependencies,
+    #[serde(alias = "build_system", alias = "build")]
     pub build_config: BuildConfig,
+    #[serde(alias = "directories", alias = "files")]
     pub directory_structure: HashMap<String, Vec<String>>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct Dependencies {
     pub production: HashMap<String, String>,
     pub development: HashMap<String, String>,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
+#[derive(Debug, Serialize, Deserialize, Default)]
 pub struct BuildConfig {
     pub build_tool: String,
     pub scripts: HashMap<String, String>,
@@ -94,13 +99,17 @@ impl ProjectDesign {
         }
 
         // Create dependency files
-        let requirements = self.dependencies.production.get("package")
-            .map(|deps| deps.to_string())
-            .unwrap_or_default();
+        let requirements = self.dependencies.production
+            .iter()
+            .map(|(pkg, ver)| format!("{}=={}", pkg, ver))
+            .collect::<Vec<_>>()
+            .join("\n");
         
-        let dev_requirements = self.dependencies.development.get("package")
-            .map(|deps| deps.to_string())
-            .unwrap_or_default();
+        let dev_requirements = self.dependencies.development
+            .iter()
+            .map(|(pkg, ver)| format!("{}=={}", pkg, ver))
+            .collect::<Vec<_>>()
+            .join("\n");
         
         fs::write(format!("{}/requirements.txt", project_root), requirements).await?;
         fs::write(format!("{}/dev-requirements.txt", project_root), dev_requirements).await?;

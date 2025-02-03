@@ -4,11 +4,12 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::HashMap;
 use std::fmt::Debug;
+use clap::Parser;
 
 mod build;
-mod project;
+pub mod project;
+pub use project::{ProjectArgs, handle_project};
 pub use build::BuildTool;
-pub use project::ProjectTool;
 
 /// Represents a tool in the system
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -40,7 +41,6 @@ impl ToolRegistry {
         
         // Register tools
         registry.register_tool("build".to_string(), Box::new(BuildTool::default()));
-        registry.register_tool("project".to_string(), Box::new(ProjectTool::default()));
         
         registry
     }
@@ -126,4 +126,14 @@ pub struct ParameterDefinition {
 pub struct ToolFunction {
     pub name: String,
     pub arguments: String, // JSON string of arguments
+}
+
+pub async fn run_tool(tool_name: &str, args: Vec<String>) -> Result<()> {
+    match tool_name {
+        "project" => {
+            let args = ProjectArgs::try_parse_from(args)?;
+            handle_project(args).await
+        }
+        _ => Err(anyhow::anyhow!("Unknown tool: {}", tool_name))
+    }
 }
